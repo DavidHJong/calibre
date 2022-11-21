@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
 
 import json
@@ -22,7 +21,7 @@ COMMANDS = (
     'set_metadata', 'export', 'catalog', 'saved_searches', 'add_custom_column',
     'custom_columns', 'remove_custom_column', 'set_custom', 'restore_database',
     'check_library', 'list_categories', 'backup_metadata', 'clone', 'embed_metadata',
-    'search'
+    'search', 'fts_index', 'fts_search',
 )
 
 
@@ -125,9 +124,10 @@ def read_credentials(opts):
     return username, pw
 
 
-class DBCtx(object):
+class DBCtx:
 
-    def __init__(self, opts):
+    def __init__(self, opts, option_parser):
+        self.option_parser = option_parser
         self.library_path = opts.library_path or prefs['library_path']
         self.timeout = opts.timeout
         self.url = None
@@ -140,7 +140,7 @@ class DBCtx(object):
             parts = urlparse(self.library_path)
             self.library_id = parts.fragment or None
             self.url = urlunparse(parts._replace(fragment='')).rstrip('/')
-            self.br = browser(handle_refresh=False, user_agent='{} {}'.format(__appname__, __version__))
+            self.br = browser(handle_refresh=False, user_agent=f'{__appname__} {__version__}')
             self.is_remote = True
             username, password = read_credentials(opts)
             self.has_credentials = False
@@ -244,11 +244,12 @@ def main(args=sys.argv):
             break
     else:
         parser.print_help()
-        return 1
+        print()
+        raise SystemExit(_('Error: You must specify a command from the list above'))
     del args[i]
     parser = option_parser_for(cmd, args[1:])()
     opts, args = parser.parse_args(args)
-    return run_cmd(cmd, opts, args[1:], DBCtx(opts))
+    return run_cmd(cmd, opts, args[1:], DBCtx(opts, parser))
 
 
 if __name__ == '__main__':

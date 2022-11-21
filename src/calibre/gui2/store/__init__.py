@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2011, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -8,7 +5,7 @@ __docformat__ = 'restructuredtext en'
 from calibre.utils.filenames import ascii_filename
 
 
-class StorePlugin(object):  # {{{
+class StorePlugin:  # {{{
 
     '''
     A plugin representing an online ebook repository (store). The store can
@@ -64,7 +61,7 @@ class StorePlugin(object):  # {{{
     def create_browser(self):
         '''
         If the server requires special headers, such as a particular user agent
-        or a referrer, then implement this method in you plugin to return a
+        or a referrer, then implement this method in your plugin to return a
         customized browser instance. See the Gutenberg plugin for an example.
 
         Note that if you implement the open() method in your plugin and use the
@@ -115,14 +112,14 @@ class StorePlugin(object):  # {{{
         disabled by default.
 
         If a store doesn't provide search on it's own use something like a site specific
-        google search to get search results for this funtion.
+        google search to get search results for this function.
 
         :param query: The string query search with.
         :param max_results: The maximum number of results to return.
         :param timeout: The maximum amount of time in seconds to spend downloading data for search results.
 
         :return: :class:`calibre.gui2.store.search_result.SearchResult` objects
-        item_data is plugin specific and is used in :meth:`open` to open to a specifc place in the store.
+        item_data is plugin specific and is used in :meth:`open` to open to a specific place in the store.
         '''
         raise NotImplementedError()
 

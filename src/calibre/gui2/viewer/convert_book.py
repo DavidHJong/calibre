@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2018, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -32,7 +31,7 @@ def book_cache_dir():
 
 
 def cache_lock():
-    return ExclusiveFile(os.path.join(book_cache_dir(), 'metadata.json'))
+    return ExclusiveFile(os.path.join(book_cache_dir(), 'metadata.json'), timeout=600)
 
 
 def book_hash(path, size, mtime):
@@ -46,7 +45,7 @@ def book_hash(path, size, mtime):
 def safe_makedirs(path):
     try:
         os.makedirs(path)
-    except EnvironmentError as err:
+    except OSError as err:
         if err.errno != errno.EEXIST:
             raise
     return path
@@ -61,7 +60,7 @@ def robust_rmtree(x):
             except UnicodeDecodeError:
                 rmtree(as_bytes(x))
             return True
-        except EnvironmentError:
+        except OSError:
             time.sleep(0.1)
     return False
 
@@ -72,7 +71,7 @@ def robust_rename(a, b):
         try:
             os.rename(a, b)
             return True
-        except EnvironmentError:
+        except OSError:
             time.sleep(0.1)
     return False
 
@@ -161,7 +160,7 @@ class ConversionFailure(ValueError):
         self.book_path = book_path
         self.worker_output = worker_output
         ValueError.__init__(
-                self, 'Failed to convert book: {} with error:\n{}'.format(book_path, worker_output))
+                self, f'Failed to convert book: {book_path} with error:\n{worker_output}')
 
 
 running_workers = []

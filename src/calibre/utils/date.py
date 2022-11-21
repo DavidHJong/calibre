@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -14,7 +13,7 @@ from calibre import strftime
 from calibre.constants import iswindows, ismacos, preferred_encoding
 from calibre.utils.iso8601 import utc_tz, local_tz, UNDEFINED_DATE
 from calibre.utils.localization import lcdata
-from polyglot.builtins import unicode_type, native_string_type
+from polyglot.builtins import native_string_type
 
 _utc_tz = utc_tz
 _local_tz = local_tz
@@ -192,13 +191,13 @@ def fromordinal(day, as_utc=True):
 
 def isoformat(date_time, assume_utc=False, as_utc=True, sep='T'):
     if not hasattr(date_time, 'tzinfo'):
-        return unicode_type(date_time.isoformat())
+        return str(date_time.isoformat())
     if date_time.tzinfo is None:
         date_time = date_time.replace(tzinfo=_utc_tz if assume_utc else
                 _local_tz)
     date_time = date_time.astimezone(_utc_tz if as_utc else _local_tz)
     # native_string_type(sep) because isoformat barfs with unicode sep on python 2.x
-    return unicode_type(date_time.isoformat(native_string_type(sep)))
+    return str(date_time.isoformat(native_string_type(sep)))
 
 
 def internal_iso_format_string():
@@ -211,7 +210,7 @@ def w3cdtf(date_time, assume_utc=False):
             date_time = date_time.replace(tzinfo=_utc_tz if assume_utc else
                     _local_tz)
         date_time = date_time.astimezone(_utc_tz if as_utc else _local_tz)
-    return unicode_type(date_time.strftime('%Y-%m-%dT%H:%M:%SZ'))
+    return str(date_time.strftime('%Y-%m-%dT%H:%M:%SZ'))
 
 
 def as_local_time(date_time, assume_utc=True):
@@ -249,12 +248,12 @@ def utcnow():
 def utcfromtimestamp(stamp):
     try:
         return datetime.utcfromtimestamp(stamp).replace(tzinfo=_utc_tz)
-    except ValueError:
+    except Exception:
         # Raised if stamp is out of range for the platforms gmtime function
         # For example, this happens with negative values on windows
         try:
             return EPOCH + timedelta(seconds=stamp)
-        except (ValueError, OverflowError):
+        except Exception:
             # datetime can only represent years between 1 and 9999
             import traceback
             traceback.print_exc()

@@ -24,7 +24,7 @@ from __python__ import hash_literals
 from read_book.viewport import scroll_viewport, rem_size
 
 # CFI escaping {{{
-escape_pat = /[\[\],^();~@!-]/g
+escape_pat = /[\[\],^();~@!]/g
 unescape_pat = /[\^](.)/g
 
 def escape_for_cfi(raw):
@@ -122,14 +122,14 @@ def text_length_in_range_wrapper(node):
     while p:
         if is_text_node(p):
             ans += p.nodeValue.length
-        elif p.nodeType is Node.ELEMENT_NODE and p.dataset.calibreRangeWrapper:
+        elif p.nodeType is Node.ELEMENT_NODE and p.dataset?.calibreRangeWrapper:
             ans += text_length_in_range_wrapper(p)
         p = p.nextSibling
     return ans
 
 
 def adjust_node_for_text_offset(node):
-    if node.parentNode and node.parentNode.dataset.calibreRangeWrapper:
+    if node.parentNode and node.parentNode.dataset?.calibreRangeWrapper:
         node = node.parentNode
     offset = 0
     adjusted = False
@@ -139,11 +139,11 @@ def adjust_node_for_text_offset(node):
             break
         if is_text_node(p):
             offset += p.nodeValue.length
-        elif p.nodeType is Node.ELEMENT_NODE and p.dataset.calibreRangeWrapper:
+        elif p.nodeType is Node.ELEMENT_NODE and p.dataset?.calibreRangeWrapper:
             offset += text_length_in_range_wrapper(p)
         node = p
         adjusted = True
-    if adjusted and node.nodeType is Node.ELEMENT_NODE and node.dataset.calibreRangeWrapper:
+    if adjusted and node.nodeType is Node.ELEMENT_NODE and node.dataset?.calibreRangeWrapper:
         if not node.firstChild or node.firstChild.nodeType is not Node.TEXT_NODE:
             node.insertBefore(document.createTextNode(''), node.firstChild or None)
         node = node.firstChild
@@ -153,7 +153,7 @@ def adjust_node_for_text_offset(node):
 def unwrapped_nodes(range_wrapper):
     ans = v'[]'
     for child in range_wrapper.childNodes:
-        if child.nodeType is Node.ELEMENT_NODE and child.dataset.calibreRangeWrapper:
+        if child.nodeType is Node.ELEMENT_NODE and child.dataset?.calibreRangeWrapper:
             ans = ans.concat(unwrapped_nodes(child))
         else:
             ans.push(child)
@@ -162,7 +162,7 @@ def unwrapped_nodes(range_wrapper):
 
 def increment_index_for_child(child, index, sentinel):
     is_element = child.nodeType is Node.ELEMENT_NODE
-    if is_element and child.dataset.calibreRangeWrapper:
+    if is_element and child.dataset?.calibreRangeWrapper:
         nodes = unwrapped_nodes(child)
         index = increment_index_for_children(nodes, index, sentinel)
     else:
@@ -183,9 +183,11 @@ def increment_index_for_children(children, index, sentinel):
 
 def non_range_wrapper_parent(node):
     p = node.parentNode
+    child = node
     while p.dataset?.calibreRangeWrapper:
+        child = p
         p = p.parentNode
-    return p
+    return p, child
 
 
 def encode(doc, node, offset, tail):
@@ -197,11 +199,11 @@ def encode(doc, node, offset, tail):
             if q:
                 if q.nodeType is Node.ELEMENT_NODE:
                     node = q
-                    if node.dataset.calibreRangeWrapper:
+                    if node.dataset?.calibreRangeWrapper:
                         if not node.firstChild:
                             node.appendChild(document.createTextNode(''))
                         node = node.firstChild
-        elif node.dataset.calibreRangeWrapper:
+        elif node.dataset?.calibreRangeWrapper:
             if not node.firstChild:
                 node.appendChild(document.createTextNode(''))
             node = node.firstChild
@@ -218,7 +220,7 @@ def encode(doc, node, offset, tail):
     # Construct the path to node from root
     is_first = True
     while node is not doc:
-        p = non_range_wrapper_parent(node)
+        p, sentinel = non_range_wrapper_parent(node)
         if not p:
             if node.nodeType == Node.DOCUMENT_NODE:  # Document node (iframe)
                 win = node.defaultView
@@ -229,10 +231,10 @@ def encode(doc, node, offset, tail):
             break
 
         # Find position of node in parent
-        index = increment_index_for_children(p.childNodes, 0, node)
+        index = increment_index_for_children(p.childNodes, 0, sentinel)
         if is_first:
             is_first = False
-            if node.nodeType is Node.ELEMENT_NODE and node.dataset.calibreRangeWrapper:
+            if node.nodeType is Node.ELEMENT_NODE and node.dataset?.calibreRangeWrapper:
                 index -= 1
         # Add id assertions for robustness where possible
         id = node.id
@@ -249,7 +251,7 @@ def node_at_index(nodes, target, index, iter_text_nodes):
     for i in range(nodes.length):
         node = nodes[i]
         is_element = node.nodeType is Node.ELEMENT_NODE
-        if is_element and node.dataset.calibreRangeWrapper:
+        if is_element and node.dataset?.calibreRangeWrapper:
             q, index = node_at_index(unwrapped_nodes(node), target, index, iter_text_nodes)
             if q:
                 return q, index
@@ -290,7 +292,8 @@ def node_for_text_offset(nodes, offset, first_node):
                 return node, offset, True
             last_text_node = node
             offset -= l
-        elif node.nodeType is Node.ELEMENT_NODE and node.dataset.calibreRangeWrapper:
+        # mathml nodes dont have dataset
+        elif node.nodeType is Node.ELEMENT_NODE and node.dataset?.calibreRangeWrapper:
             qn, offset, ok = node_for_text_offset(unwrapped_nodes(node), offset)
             if ok:
                 return qn, offset, True
@@ -387,7 +390,7 @@ def decode(cfi, doc):
     # Find the text node that contains the offset
     if offset is not None:
         orig_offset = offset
-        if node.parentNode?.nodeType is Node.ELEMENT_NODE and node.parentNode.dataset.calibreRangeWrapper:
+        if node.parentNode?.nodeType is Node.ELEMENT_NODE and node.parentNode.dataset?.calibreRangeWrapper:
             node = node.parentNode
         qnode, offset, ok = node_for_text_offset(node.parentNode.childNodes, offset, node)
         if not ok:
@@ -505,7 +508,7 @@ def at(x, y, doc):  # {{{
         if not target or target is cdoc.documentElement or target is cdoc.body:
             # We ignore both html and body even though body could
             # have text nodes under it as performance is very poor if body
-            # has large margins/padding (for e.g. in fullscreen mode)
+            # has large margins/padding (e.g. in fullscreen mode)
             # A possible solution for this is to wrap all text node
             # children of body in <span> but that is seriously ugly and
             # might have side effects. Lets do this only if there are lots of
@@ -630,6 +633,13 @@ def decoded_range_to_document_position(decoded):
     # Character offset
     # Get the bounding rect of the range, in (real) viewport space
     rect = decoded.range.getBoundingClientRect()
+    inserted_node = None
+    if not rect.width and not rect.height and not rect.left and not rect.right:
+        # this happens is range is a text node containing a newline after a
+        # <br> https://bugs.launchpad.net/bugs/1944433
+        inserted_node = document.createTextNode('\xa0')
+        decoded.range.insertNode(inserted_node)
+        rect = decoded.range.getBoundingClientRect()
 
     # Now, get the viewport-space position (vs_pos) we want to scroll to
     # This is a little complicated.
@@ -640,7 +650,7 @@ def decoded_range_to_document_position(decoded):
     # character, which would be in the inline direction.
     #  Unless the flag is set to use the end of the range:
     #  (because ranges indices may not exceed the range,
-    #   but CFI offets are allowed to be one past the end.)
+    #   but CFI offsets are allowed to be one past the end.)
     if decoded.use_range_end_pos:
         inline_vs_pos = scroll_viewport.rect_inline_end(rect)
     else:
@@ -654,6 +664,8 @@ def decoded_range_to_document_position(decoded):
     else:
         block_vs_pos = scroll_viewport.rect_block_start(rect)
 
+    if inserted_node:
+        inserted_node.parentNode.removeChild(inserted_node)
     # Now, we need to convert these to document X and Y coordinates.
     return scroll_viewport.viewport_to_document_inline_block(inline_vs_pos, block_vs_pos, decoded.node.ownerDocument)
 
@@ -699,7 +711,7 @@ def scroll_to(cfi, callback, doc):  # {{{
     if jstype(decoded.time) is 'number':
         set_current_time(decoded.node, decoded.time)
 
-    if decoded.range is not None:
+    def handle_text_node():
         # Character offset
         r = decoded.range
         so, eo = r.startOffset, r.endOffset
@@ -719,7 +731,7 @@ def scroll_to(cfi, callback, doc):  # {{{
         span.setAttribute('style', 'border-width: 0; padding: 0; margin: 0')
         r.surroundContents(span)
         scroll_viewport.scroll_into_view(span)
-        fn = def():
+        return def():
             nonlocal original_node, r
             # Remove the span and get the new position now that scrolling
             # has (hopefully) completed
@@ -768,7 +780,8 @@ def scroll_to(cfi, callback, doc):  # {{{
 
             if callback:
                 callback(doc_x, doc_y)
-    else:
+
+    def handle_element_node():
         node = decoded.node
         if node.nodeType is Node.TEXT_NODE:
             node = decoded.node = node.parentNode
@@ -776,7 +789,7 @@ def scroll_to(cfi, callback, doc):  # {{{
             return
         scroll_viewport.scroll_into_view(node)
 
-        fn = def():
+        return def():
             doc_x, doc_y = decoded_node_or_spatial_offset_to_document_position(decoded)
 
             # Abort if CFI position is invalid
@@ -793,6 +806,11 @@ def scroll_to(cfi, callback, doc):  # {{{
                 doc_x += scroll_viewport.width()
             if callback:
                 callback(doc_x, doc_y)
+
+    if decoded.range is not None:
+        fn = handle_text_node()
+    else:
+        fn = handle_element_node()
 
     setTimeout(fn, 10)
 

@@ -39,7 +39,7 @@ In addition to the standard column based fields, you also can use:
   * ``{formats}`` - A list of formats available in the calibre library for a book
   * ``{identifiers:select(isbn)}`` - The ISBN of the book
 
-If the metadata for field for a given a book is not defined then the field in the template is replaced by the empty string (``''``). For example, consider the following template::
+If the metadata for the field for a given book is not defined then the field in the template is replaced by the empty string (``''``). For example, consider the following template::
 
     {author_sort}/{series}/{title} {series_index}
 
@@ -70,7 +70,7 @@ However, if a book has no series the template will produce `- - the title`, whic
 
   ``{field:|prefix_text|suffix_text}``
 
-This ``template expression`` says that if ``field`` has the the value `XXXX` then the result will be `prefix_textXXXXXsuffix_text`. If ``field`` is empty (has no value) then the result will be the empty string (nothing) because the prefix and suffix are ignored. The prefix and suffix can contain blanks.
+This ``template expression`` says that if ``field`` has the value `XXXX` then the result will be `prefix_textXXXXXsuffix_text`. If ``field`` is empty (has no value) then the result will be the empty string (nothing) because the prefix and suffix are ignored. The prefix and suffix can contain blanks.
 
 **Do not use subtemplates (`{ ... }`) or functions (see below) in the prefix or the suffix.**
 
@@ -154,14 +154,14 @@ The functions intended for use in Single Function Mode are:
 * ``human_readable()`` -- expects the value to be a number and returns a string representing that number in KB, MB, GB, etc.
 * ``ifempty(text if empty)`` -- if the value is not empty then return the value of the field, otherwise return `text if empty`.
 * ``in_list(separator, [ pattern, found_val, ]* not_found_val)`` -- interpret the value as a list of items separated by ``separator``, checking the ``pattern`` against each item in the list. If the ``pattern`` matches an item then return ``found_val``, otherwise return ``not_found_val``. The pair ``pattern`` and ``found_value`` can be repeated as many times as desired, permitting returning different values depending on the item's value. The patterns are checked in order, and the first match is returned.
-* ``language_strings(localize)`` -- return the `language names <https://www.loc.gov/standards/iso639-2/php/code_list.php>`_ for the `language codes <https://www.loc.gov/standards/iso639-2/php/code_list.php>`_ passed in as the value. Example: ``{languages:language_strings()}``.  If `localize` is zero, return the strings in English. If ``localize`` is not zero, return the strings in the language of the current locale. ``Lang_codes`` is a comma-separated list.
+* ``language_strings(localize)`` -- return the `language names <https://www.loc.gov/standards/iso639-2/php/code_list.php>`_ for the `language codes <https://www.loc.gov/standards/iso639-2/php/code_list.php>`_ passed in as the value. Example: ``{languages:language_strings()}``.  If ``localize`` is zero, return the strings in English. If ``localize`` is not zero, return the strings in the language of the current locale. ``Lang_codes`` is a comma-separated list.
 * ``list_item(index, separator)`` -- interpret the value as a list of items separated by ``separator``, returning the 'index'th item. The first item is number zero. The last item has the index ``-1`` as in ``list_item(-1,separator)``. If the item is not in the list, then the empty string is returned.
 * ``lookup([ pattern, key, ]* else_key)`` -- The patterns will be checked against the value in order. If a pattern matches then the value of the field named by ``key`` is returned. If no pattern matches then the value of the field named by ``else_key`` is returned. See``switch`` (below).
 * ``lowercase()`` -- returns the value of the field in lower case.
 * ``rating_to_stars(use_half_stars)`` -- Returns the rating as string of star (``★``) characters. The value must be a number between 0 and 5. Set use_half_stars to 1 if you want half star characters for fractional numbers available with custom ratings columns.
 * ``re(pattern, replacement)`` -- return the value after applying the regular expression. All instances of ``pattern`` in the value are replaced with ``replacement``. The template language uses case insensitive `Python regular expressions <https://docs.python.org/3/library/re.html>`_.
 * ``select(key)`` -- interpret the value as a comma-separated list of items with each item having the form ``id:value`` (the calibre ``identifier`` format). The function finds the first pair with the id equal to key and returns the corresponding value. If no id matches then the function returns the empty string.
-* ``shorten(left chars, middle text, right chars)`` -- Return a shortened version of the value, consisting of ``left chars`` characters from the beginning of the value, followed by ``middle text``, followed by ``right chars`` characters from the end of the value. ``Left chars`` and ``right chars`` must be non-negative integers. Example: assume you want to display the title with a length of at most 15 characters in length. One template that does this is ``{title:shorten(9,-,5)}``. For a book with the title `Ancient English Laws in the Times of Ivanhoe` the result will be `Ancient E-nhoe`: the first 9 characters of the title, a ``-``, then the last 5 characters. If the value's length is less than ``left chars`` + ``right chars`` + the length of ``middle text`` then the value will be returned unchanged. For example, the title `The Dome` would not be changed.
+* ``shorten(left chars, middle text, right chars)`` -- Return a shortened version of the value, consisting of ``left chars`` characters from the beginning of the value, followed by ``middle text``, followed by ``right chars`` characters from the end of the value. ``Left chars`` and ``right chars`` must be non-negative integers. Example: assume you want to display the title with a length of at most 15 characters in length. One template that does this is ``{title:shorten(9,-,5)}``. For a book with the title `Ancient English Laws in the Times of Ivanhoe` the result will be `Ancient E-anhoe`: the first 9 characters of the title, a ``-``, then the last 5 characters. If the value's length is less than ``left chars`` + ``right chars`` + the length of ``middle text`` then the value will be returned unchanged. For example, the title `The Dome` would not be changed.
 * ``str_in_list(separator, [ string, found_val, ]+ not_found_val)`` -- interpret the value as a list of items separated by ``separator`` then compare ``string`` against each value in the list. The ``string`` is not a regular expression. If ``string`` is equal to any item (ignoring case) then return the corresponding ``found_val``. If ``string`` contains ``separators`` then it is also treated as a list and each subvalue is checked. The ``string`` and ``found_value`` pairs can be repeated as many times as desired, permitting returning different values depending on string's value. If none of the strings match then ``not_found_value`` is returned. The strings are checked in order. The first match is returned.
 * ``subitems(start_index, end_index)`` -- This function breaks apart lists of tag-like hierarchical items such as genres. It interprets the value as a comma-separated list of tag-like items, where each item is a period-separated list. It returns a new list made by extracting from each item the components from ``start_index`` to ``end_index``, then merging the results back together. Duplicates are removed. The first subitem in a period-separated list has an index of zero. If an index is negative then it counts from the end of the list. As a special case, an end_index of zero is assumed to be the length of the list.
 
@@ -217,6 +217,7 @@ General Program Mode
     or_expression   ::= and_expression [ '||' and_expression ]*
     and_expression  ::= not_expression [ '&&' not_expression ]*
     not_expression  ::= [ '!' not_expression ]* | compare_exp
+    concatenate_expr::= compare_expr [ '&' compare_expr ]*
     compare_expr    ::= add_sub_expr [ compare_op add_sub_expr ]
     compare_op      ::= '==' | '!=' | '>=' | '>' | '<=' | '<' | 'in' | 'inlist' |
                         '==#' | '!=#' | '>=#' | '>#' | '<=#' | '<#'
@@ -227,24 +228,34 @@ General Program Mode
     unary_op_expr   ::= [ add_sub_op unary_op_expr ]* | expression
     expression      ::= identifier | constant | function | assignment | field_reference |
                         if_expr | for_expr | break_expr | continue_expr |
-                        '(' expression_list ')'
+                        '(' expression_list ')' | function_def
     field_reference ::= '$' [ '$' ] [ '#' ] identifier
     identifier      ::= id_start [ id_rest ]*
     id_start        ::= letter | underscore
     id_rest         ::= id_start | digit
     constant        ::= " string " | ' string ' | number
     function        ::= identifier '(' expression_list [ ',' expression_list ]* ')'
+    function_def    ::= 'def' identifier '(' top_expression [ ',' top_expression ]* ')' ':'
+                        expression_list 'fed'
     assignment      ::= identifier '=' top_expression
     if_expr         ::= 'if' condition 'then' expression_list
                         [ elif_expr ] [ 'else' expression_list ] 'fi'
     condition       ::= top_expression
     elif_expr       ::= 'elif' condition 'then' expression_list elif_expr | ''
-    for_expr        ::= 'for' identifier 'in' list_expr
+    for_expr        ::= for_list | for_range
+    for_list        ::= 'for' identifier 'in' list_expr
                         [ 'separator' separator_expr ] ':' expression_list 'rof'
+    for_range       ::= 'for' identifier 'in' range_expr ':' expression_list 'rof'
+    range_expr      ::= 'range' '(' [ start_expr ',' ] stop_expr
+                        [ ',' step_expr [ ',' limit_expr ] ] ')'
     list_expr       ::= top_expression
     break_expr      ::= 'break'
     continue_expr   ::= 'continue'
     separator_expr  ::= top_expression
+    start_expr      ::= top_expression
+    stop_expr       ::= top_expression
+    step_expr       ::= top_expression
+    limit_expr      ::= top_expression
 
 Notes:
 
@@ -265,6 +276,7 @@ The operator precedence (order of evaluation) from highest (evaluated first) to 
 * Multiply (``*``) and divide (``/``). These operators are associative and evaluate left to right. Use parentheses if you want to change the order of evaluation.
 * Add (``+``) and subtract (``-``). These operators are associative and evaluate left to right.
 * Numeric and string comparisons. These operators return ``'1'`` if the comparison succeeds, otherwise the empty string (``''``). Comparisons are not associative: ``a < b < c`` is a syntax error.
+* String concatenation (``&``). The ``&`` operator returns a string formed by concatenating the left-hand and right-hand expressions. Example: ``'aaa' & 'bbb'`` returns ``'aaabbb'``. The operator is associative and evaluates left to right.
 * Unary logical not (``!``). This operator returns ``'1'`` if the expression is False (evaluates to the empty string), otherwise ``''``.
 * Logical and (``&&``). This operator returns '1' if both the left-hand and right-hand expressions are True, or the empty string ``''`` if either is False. It is associative, evaluates left to right, and does `short-circuiting <https://chortle.ccsu.edu/java5/Notes/chap40/ch40_2.html>`_.
 * Logical or (``||``). This operator returns ``'1'`` if either the left-hand or right-hand expression is True, or ``''`` if both are False. It is associative, evaluates left to right, and does `short-circuiting <https://chortle.ccsu.edu/java5/Notes/chap40/ch40_2.html>`_. It is an `inclusive or`, returning ``'1'`` if both the left- and right-hand expressions are True.
@@ -320,7 +332,7 @@ As a last example, this program returns the value of the ``series`` column if th
 
 **For expressions**
 
-The ``for`` expression iterates over a list of values, processing them one at a time. The ``list_expression`` must evaluate to either a metadata field ``lookup name``, for example ``tags`` or ``#genre``, or a list of values. If the result is a valid ``lookup name`` then the field's value is fetched and the separator specified for that field type is used. If the result isn't a valid lookup name then it is assumed to be a list of values. The list is assumed to be separated by commas unless the optional keyword ``separator`` is supplied, in which case the list values must be separated by the result of evaluating the ``separator_expr``. Each value in the list is assigned to the specified variable then the ``expression_list`` is evaluated. You can use ``break`` to jump out of the loop, and ``continue`` to jump to the beginning of the loop for the next iteration.
+The ``for`` expression iterates over a list of values, processing them one at a time. The ``list_expression`` must evaluate either to a metadata field ``lookup name`` e.g., ``tags`` or ``#genre``, or to a list of values. The :ref:`range() function <range_function>` (see below) generates a list of numbers. If the result is a valid ``lookup name`` then the field's value is fetched and the separator specified for that field type is used. If the result isn't a valid lookup name then it is assumed to be a list of values. The list is assumed to be separated by commas unless the optional keyword ``separator`` is supplied, in which case the list values must be separated by the result of evaluating the ``separator_expr``. A separator cannot be used if the list is generated by ``range()``. Each value in the list is assigned to the specified variable then the ``expression_list`` is evaluated. You can use ``break`` to jump out of the loop, and ``continue`` to jump to the beginning of the loop for the next iteration.
 
 Example: This template removes the first hierarchical name for each value in Genre (``#genre``), constructing a list with the new names::
 
@@ -336,6 +348,31 @@ If the original Genre is `History.Military, Science Fiction.Alternate History, R
 :guilabel:`Edit metadata in bulk -> Search & replace` with :guilabel:`Search for` set to ``template`` to strip off the first level of the hierarchy and assign the resulting value to Genre.
 
 Note: the last line in the template, ``new_tags``, isn't strictly necessary in this case because ``for`` returns the value of the last top_expression in the expression list. The value of an assignment is the value of its expression, so the value of the ``for`` statement is what was assigned to ``new_tags``.
+
+**Function definition**
+
+If you have code in a template that repeats then you can put that code into a local function. The ``def`` keyword starts the definition. It is followed by the function name, the argument list, then the code in the function. The function definition ends with the ``fed`` keyword.
+
+Arguments are positional. When a function is called the supplied arguments are matched left to right against the defined parameters, with the value of the argument assigned to the parameter. It is an error to provide more arguments than defined parameters. Parameters can have default values, such as ``a = 25``. If an argument is not supplied for that parameter then the default value is used, otherwise the parameter is set to the empty string.
+
+The ``return`` statement can be used in a local function.
+
+A function must be defined before it can be used.
+
+Example: This template computes an approximate duration in years, months, and days from a number of days. The function ``to_plural()`` formats the computed values. Note that the example also uses the ``&`` operator::
+
+  program:
+  	days = 2112;
+	years = floor(days/360);
+	months = floor(mod(days, 360)/30);
+	days = days - ((years*360) + (months * 30));
+
+	def to_plural(v, str):
+		if v == 0 then return '' fi;
+		return v & ' ' & (if v == 1 then str else str & 's' fi) & ' '
+	fed;
+
+	to_plural(years, 'year') & to_plural(months, 'month') & to_plural(days,'day')
 
 **Relational operators**
 
@@ -376,6 +413,33 @@ In `GPM` the functions described in `Single Function Mode` all require an additi
 
   An author is separated from its link value by the ``val_separator`` string with no added spaces. ``author:linkvalue`` pairs are separated by the ``pair_separator`` string argument with no added spaces. It is up to you to choose separator strings that do not occur in author names or links. An author is included even if the author link is empty.
 * ``author_sorts(val_separator)`` -- returns a string containing a list of author's sort values for the authors of the book. The sort is the one in the author metadata information (different from the author_sort in books). The returned list has the form ``author sort 1`` ``val_separator`` ``author sort 2`` etc. with no added spaces. The author sort values in this list are in the same order as the authors of the book. If you want spaces around ``val_separator`` then include them in the ``val_separator`` string.
+* ``book_count(query, use_vl)`` -- returns the count of books found by searching for ``query``. If ``use_vl`` is ``0`` (zero) then virtual libraries are ignored. This function and its companion ``book_values()`` are particularly useful in template searches, supporting searches that combine information from many books such as looking for series with only one book. It cannot be used in composite columns unless the tweak ``allow_template_database_functions_in_composites`` is set to True. It can be used only in the GUI.
+
+  For example this template search uses this function and its companion to find all series with only one book:
+
+  1) Define a stored template (using :guilabel:`Preferences->Advanced->Template functions`) named ``series_only_one_book`` (the name is arbitrary). The template is::
+
+	program:
+	    vals = globals(vals='');
+	    if !vals then
+	        all_series = book_values('series', 'series:true', ',', 0);
+	        for series in all_series:
+	            if book_count('series:="' & series & '"', 0) == 1 then
+	                vals = list_join(',', vals, ',', series, ',')
+	            fi
+	        rof;
+	        set_globals(vals)
+	    fi;
+	    str_in_list(vals, ',', $series, 1, '')
+
+    The first time the template runs (the first book checked) it stores the results of the database lookups in a ``global`` template variable named ``vals``. These results are used to check subsequent books without redoing the lookups.
+
+  2) Use the stored template in a template search::
+
+      template:"program: series_only_one_book()#@#:n:1"
+
+  Using a stored template instead of putting the template into the search eliminates problems caused by the requirement to escape quotes in search expressions.
+* ``book_values(column, query, sep, use_vl)`` -- returns a list of the unique values contained in the column ``column`` (a lookup name), separated by ``sep``, in the books found by searching for ``query``. If ``use_vl`` is ``0`` (zero) then virtual libraries are ignored. This function and its companion ``book_count()`` are particularly useful in template searches, supporting searches that combine information from many books such as looking for series with only one book. It cannot be used in composite columns unless the tweak ``allow_template_database_functions_in_composites`` is set to True. It can be used only in the GUI.
 * ``booksize()`` -- returns the value of the calibre 'size' field. Returns '' if there are no formats.
 * ``check_yes_no(field_name, is_undefined, is_false, is_true)`` -- checks if the value of the yes/no field named by the lookup name ``field_name`` is one of the values specified by the parameters, returning ``'yes'`` if a match is found otherwise returning the empty string. Set the parameter ``is_undefined``, ``is_false``, or ``is_true`` to 1 (the number) to check that condition, otherwise set it to 0. Example:
 
@@ -389,6 +453,17 @@ In `GPM` the functions described in `Single Function Mode` all require an additi
 * ``connected_device_uuid(storage_location_key)`` -- if a device is connected then return the device uuid (unique id), otherwise return the empty string. Each storage location on a device has a different uuid. The ``storage_location_key`` location names are ``'main'``, ``'carda'`` and ``'cardb'``. This function works only in the GUI.
 * ``current_library_name()`` -- return the last name on the path to the current calibre library.
 * ``current_library_path()`` -- return the full path to the current calibre library.
+* ``current_virtual_library_name()`` -- return the name of the current virtual library if there is one, otherwise the empty string. Library name case is preserved. Example: ``program: current_virtual_library_name()``. This function works only in the GUI.
+* ``date_arithmetic(date, calc_spec, fmt)`` -- Calculate a new date from ``date`` using ``calc_spec``. Return the new date formatted according to optional ``fmt``: if not supplied then the result will be in ISO format. The calc_spec is a string formed by concatenating pairs of ``vW`` (``valueWhat``) where ``v`` is a possibly-negative number and W is one of the following letters:
+
+    * ``s``: add ``v`` seconds to ``date``
+    * ``m``: add ``v`` minutes to ``date``
+    * ``h``: add ``v`` hours to ``date``
+    * ``d``: add ``v`` days to ``date``
+    * ``w``: add ``v`` weeks to ``date``
+    * ``y``: add ``v`` years to ``date``, where a year is 365 days.
+
+  Example: ``'1s3d-1m'`` will add 1 second, add 3 days, and subtract 1 minute from ``date``.
 * ``days_between(date1, date2)`` -- return the number of days between ``date1`` and ``date2``. The number is positive if ``date1`` is greater than ``date2``, otherwise negative. If either ``date1`` or ``date2`` are not dates, the function returns the empty string.
 * ``divide(x, y)`` -- returns ``x / y``. Throws an exception if either ``x`` or ``y`` are not numbers. This function can usually be replaced by the ``/`` operator.
 * ``eval(string)`` -- evaluates the string as a program, passing the local variables. This permits using the template processor to construct complex results from local variables. In :ref:`Template Program Mode <template_mode>`, because the `{` and `}` characters are interpreted before the template is evaluated you must use `[[` for the `{` character and `]]` for the ``}`` character. They are converted automatically. Note also that prefixes and suffixes (the `|prefix|suffix` syntax) cannot be used in the argument to this function when using :ref:`Template Program Mode <template_mode>`.
@@ -461,6 +536,24 @@ In `GPM` the functions described in `Single Function Mode` all require an additi
 * ``list_difference(list1, list2, separator)`` -- return a list made by removing from ``list1`` any item found in ``list2`` using a case-insensitive comparison. The items in ``list1`` and ``list2`` are separated by separator, as are the items in the returned list.
 * ``list_equals(list1, sep1, list2, sep2, yes_val, no_val)`` -- return ``yes_val`` if ``list1`` and `list2` contain the same items, otherwise return ``no_val``. The items are determined by splitting each list using the appropriate separator character (``sep1`` or ``sep2``). The order of items in the lists is not relevant. The comparison is case-insensitive.
 * ``list_intersection(list1, list2, separator)`` -- return a list made by removing from ``list1`` any item not found in ``list2``, using a case-insensitive comparison. The items in ``list1`` and ``list2`` are separated by separator, as are the items in the returned list.
+* ``list_join(with_separator, list1, separator1 [, list2, separator2]*)`` -- return a list made by joining the items in the source lists (``list1`` etc) using ``with_separator`` between the items in the result list. Items in each source ``list[123...]`` are separated by the associated ``separator[123...]``. A list can contain zero values. It can be a field like ``publisher`` that is single-valued, effectively a one-item list. Duplicates are removed using a case-insensitive comparison. Items are returned in the order they appear in the source lists. If items on lists differ only in letter case then the last is used. All separators can be more than one character.
+
+  Example::
+
+    program:
+      list_join('#@#', $authors, '&', $tags, ',')
+
+  You can use ``list_join`` on the results of previous calls to ``list_join`` as follows::
+
+    program:
+      a = list_join('#@#', $authors, '&', $tags, ',');
+      b = list_join('#@#', a, '#@#', $#genre, ',', $#people, '&', 'some value', ',')
+
+  You can use expressions to generate a list. For example, assume you want items for ``authors`` and ``#genre``, but with the genre changed to the word "Genre: " followed by the first letter of the genre, i.e. the genre "Fiction" becomes "Genre: F". The following will do that::
+
+    program:
+      list_join('#@#', $authors, '&', list_re($#genre, ',', '^(.).*$', 'Genre: \1'),  ',')
+
 * ``list_re(src_list, separator, include_re, opt_replace)`` -- Construct a list by first separating ``src_list`` into items using the ``separator`` character. For each item in the list, check if it matches ``include_re``. If it does then add it to the list to be returned. If ``opt_replace`` is not the empty string then apply the replacement before adding the item to the returned list.
 * ``list_re_group(src_list, separator, include_re, search_re [, template_for_group]*)`` -- Like list_re except replacements are not optional. It uses ``re_group(item, search_re, template ...)`` when doing the replacements.
 * ``list_remove_duplicates(list, separator)`` -- return a list made by removing duplicate items in ``list``. If items differ only in case then the last is returned. The items in ``list`` are separated by ``separator``, as are the items in the returned list.
@@ -483,7 +576,20 @@ In `GPM` the functions described in `Single Function Mode` all require an additi
 * ``not(value)`` -- returns the string "1" if the value is empty, otherwise returns the empty string. This function can usually be replaced with the unary not (``!``) operator.
 * ``ondevice()`` -- return the string ``'Yes'`` if ``ondevice`` is set, otherwise return the empty string.
 * ``or(value [, value]*)`` -- returns the string ``'1'`` if any value is not empty, otherwise returns the empty string. You can have as many values as you want. This function can usually be replaced by the ``||`` operator. A reason it cannot be replaced is if short-circuiting will change the results because of side effects.
-* ``print(a [, b]*)`` -- prints the arguments to standard output. Unless you start calibre from the command line (``calibre-debug -g``), the output will go to a black hole. The ``print`` function always returns the empty string.
+* ``print(a [, b]*)`` -- prints the arguments to standard output. Unless you start calibre from the command line (``calibre-debug -g``), the output will go into a black hole. The ``print`` function always returns its first argument.
+
+.. _range_function:
+
+* ``range(start, stop, step, limit)`` -- returns a list of numbers generated by looping over the range specified by the parameters start, stop, and step, with a maximum length of limit. The first value produced is 'start'. Subsequent values ``next_v = current_v + step``. The loop continues while ``next_v < stop`` assuming ``step`` is positive, otherwise while ``next_v > stop``. An empty list is produced if ``start`` fails the test: ``start >= stop`` if ``step`` is positive. The ``limit`` sets the maximum length of the list and has a default of 1000. The parameters ``start``, ``step``, and ``limit`` are optional. Calling ``range()`` with one argument specifies ``stop``. Two arguments specify ``start`` and ``stop``. Three arguments specify ``start``, ``stop``, and ``step``. Four arguments specify ``start``, ``stop``, ``step`` and ``limit``. Examples::
+
+    range(5) -> '0, 1, 2, 3, 4'
+    range(0, 5) -> '0, 1, 2, 3, 4'
+    range(-1, 5) -> '-1, 0, 1, 2, 3, 4'
+    range(1, 5) -> '1, 2, 3, 4'
+    range(1, 5, 2) -> '1, 3'
+    range(1, 5, 2, 5) -> '1, 3'
+    range(1, 5, 2, 1) -> error(limit exceeded)
+
 * ``raw_field(lookup_name [, optional_default])`` -- returns the metadata field named by ``lookup_name`` without applying any formatting. It evaluates and returns the optional second argument ``optional_default`` if the field's value is undefined (``None``).
 * ``raw_list(lookup_name, separator)`` -- returns the metadata list named by ``lookup_name`` without applying any formatting or sorting, with the items separated by separator.
 * ``re_group(value, pattern [, template_for_group]*)`` --  return a string made by applying the regular expression pattern to ``value`` and replacing each matched instance with the the value returned by the corresponding template. In :ref:`Template Program Mode <template_mode>`, like for the ``template`` and the ``eval`` functions, you use ``[[`` for ``{`` and ``]]`` for ``}``.
@@ -497,11 +603,17 @@ In `GPM` the functions described in `Single Function Mode` all require an additi
 * ``strcat(a [, b]*)`` -- can take any number of arguments. Returns a string formed by concatenating all the arguments.
 * ``strcat_max(max, string1 [, prefix2, string2]*)`` -- Returns a string formed by concatenating the arguments. The returned value is initialized to ``string1``. Strings made from ``prefix, string`` pairs are added to the end of the value as long as the resulting string length is less than ``max``. Prefixes can be empty. Returns ``string1`` even if ``string1`` is longer than ``max``. You can pass as many ``prefix, string`` pairs as you wish.
 * ``strcmp(x, y, lt, eq, gt)`` -- does a case-insensitive lexical comparison of ``x`` and ``y``. Returns ``lt`` if ``x < y``, ``eq`` if ``x == y``, otherwise ``gt``. This function can often be replaced by one of the lexical comparison operators (``==``, ``>``, ``<``, etc.)
+* ``strcmpcase(x, y, lt, eq, gt)`` -- does a case-sensitive lexical comparison of ``x`` and ``y``. Returns ``lt`` if ``x < y``, ``eq`` if ``x == y``, otherwise ``gt``.
+
+  Note: This is NOT the default behavior used by calibre, for example, in the lexical comparison operators (``==``, ``>``, ``<``, etc.). This function could cause unexpected results, preferably use ``strcmp()`` whenever possible.
+
 * ``strlen(value)`` -- Returns the length of the string ``value``.
 * ``substr(str, start, end)`` -- returns the ``start``'th through the ``end``'th characters of ``str``. The first character in ``str`` is the zero'th character. If ``end`` is negative, then it indicates that many characters counting from the right. If ``end`` is zero, then it indicates the last character. For example, ``substr('12345', 1, 0)`` returns ``'2345'``, and ``substr('12345', 1, -1)`` returns ``'234'``.
 * ``subtract(x, y)`` -- returns ``x - y``. Throws an exception if either ``x`` or ``y`` are not numbers. This function can usually be replaced by the ``-`` operator.
 * ``today()`` -- return a date+time string for today (now). This value is designed for use in `format_date` or `days_between`, but can be manipulated like any other string. The date is in `ISO <https://en.wikipedia.org/wiki/ISO_8601>`_ date/time format.
 * ``template(x)`` -- evaluates ``x`` as a template. The evaluation is done in its own context, meaning that variables are not shared between the caller and the template evaluation.
+* ``to_hex(val)`` -- returns the string ``val`` encoded in hex. This is useful when constructing calibre URLs.
+* ``urls_from_identifiers(identifiers, sort_results)`` -- given a comma-separated list of ``identifiers``, where an `identifier` is a colon-separated pair of values (``id_name:id_value``), returns a comma-separated list of HTML URLs generated from the identifiers. The list not sorted if sort_results is ``0`` (character or number), otherwise it is sorted alphabetically by the identifier name. The URLs are generated in the same way as the built-in identifiers column when shown in :guilabel:`Book details`.
 
 .. _template_mode:
 
@@ -518,7 +630,7 @@ the value of a custom field #genre. You cannot do this in the :ref:`Single Funct
 
 The example shows several things:
 
-* `TPM` is used if the expression begins with ``:'`` and ends with ``'``. Anything else is assumed to be in :ref:`Single Function Mode <single_mode>`.
+* `TPM` is used if the expression begins with ``:'`` and ends with ``'}``. Anything else is assumed to be in :ref:`Single Function Mode <single_mode>`.
 * the variable ``$`` stands for the field named in the template: the expression is operating upon, ``#series`` in this case.
 * functions must be given all their arguments. There is no default value. For example, the standard built-in functions must be given an additional initial parameter indicating the source field.
 * white space is ignored and can be used anywhere within the expression.
@@ -530,16 +642,80 @@ In `TPM`, using ``{`` and ``}`` characters in string literals can lead to errors
 
 As with `General Program Mode`, for functions documented under :ref:`Single Function Mode <single_mode>` you must supply the value the function is to act upon as the first parameter in addition to the documented parameters. In `TPM` you can use ``$`` to access the value specified by the ``lookup name`` for the template expression.
 
-Stored general program mode templates
+.. _python_mode:
+
+Python Template Mode
+-----------------------------------
+
+Python Template Mode (PTM) lets you write templates using native python and the `calibre API <https://manual.calibre-ebook.com/develop.html#api-documentation-for-various-parts-of-calibre>`_. The database API will be of most use; further discussion is beyond the scope of this manual. PTM templates are faster and can do more complicated operations but you must know how to write code in python using the calibre API.
+
+A PTM template begins with:
+
+.. code-block:: python
+
+ python:
+ def evaluate(book, context):
+     # book is a calibre metadata object
+     # context is an instance of calibre.utils.formatter.PythonTemplateContext,
+     # which currently contains the following attributes:
+     # db: a calibre legacy database object.
+     # globals: the template global variable dictionary.
+     # arguments: is a list of arguments if the template is called by a GPM template, otherwise None.
+     # funcs: used to call Built-in/User functions and Stored GPM/Python templates.
+     # Example: context.funcs.list_re_group()
+
+     # your Python code goes here
+     return 'a string'
+
+You can add the above text to your template using the context menu, usually accessed with a right click. The comments are not significant and can be removed. You must use python indenting.
+
+The context object supports ``str(context)`` that returns a string of the context's contents, and ``context.attributes`` that returns a list of the attribute names in the context.
+
+The ``context.funcs`` attribute allows calling Built-in and User template functions, and Stored GPM/Python templates, so that you can execute them directly in your code. The functions are retrieved using their names. If the name conflicts with a Python keyword, add an underscore to the end of the name. Examples:
+
+.. code-block:: python
+
+ context.funcs.list_re_group()
+ context.funcs.assert_()
+
+Here is an example of a PTM template that produces a list of all the authors for a series. The list is stored in a `Column built from other columns, behaves like tags`. It shows in :guilabel:`Book details` and has the :guilabel:`on separate lines` checked (in :guilabel:`Preferences->Look & feel->Book details`). That option requires the list to be comma-separated. To satisfy that requirement the template converts commas in author names to semicolons then builds a comma-separated list of authors. The authors are then sorted, which is why the template uses author_sort.
+
+.. code-block:: python
+
+    python:
+    def evaluate(book, context):
+        if book.series is None:
+            return ''
+        db = context.db.new_api
+        ans = set()
+        # Get the list of books in the series
+        ids = db.search(f'series:"={book.series}"', '')
+        if ids:
+            # Get all the author_sort values for the books in the series
+            author_sorts = (v for v in db.all_field_for('author_sort', ids).values())
+            # Add the names to the result set, removing duplicates
+            for aus in author_sorts:
+                ans.update(v.strip() for v in aus.split('&'))
+        # Make a sorted comma-separated string from the result set
+        return ', '.join(v.replace(',', ';') for v in sorted(ans))
+
+The output in :guilabel:`Book details` looks like this:
+
+.. image:: images/python_template_example.png
+    :align: center
+    :alt: E-book conversion dialog
+    :class: half-width-img
+
+Stored templates
 ----------------------------------------
 
-:ref:`General Program Mode <general_mode>` supports saving templates and calling those templates from another template, much like calling stored functions. You save templates using :guilabel:`Preferences->Advanced->Template functions`. More information is provided in that dialog. You call a template the same way you call a function, passing positional arguments if desired. An argument can be any expression. Examples of calling a template, assuming the stored template is named ``foo``:
+Both :ref:`General Program Mode <general_mode>` and :ref:`Python Template Mode <python_mode>` support saving templates and calling those templates from another template, much like calling stored functions. You save templates using :guilabel:`Preferences->Advanced->Template functions`. More information is provided in that dialog. You call a template the same way you call a function, passing positional arguments if desired. An argument can be any expression. Examples of calling a template, assuming the stored template is named ``foo``:
 
 * ``foo()`` -- call the template passing no arguments.
 * ``foo(a, b)`` call the template passing the values of the two variables ``a`` and ``b``.
 * ``foo(if field('series') then field('series_index') else 0 fi)`` -- if the book has a ``series`` then pass the ``series_index``, otherwise pass the value ``0``.
 
-You retrieve the arguments passed in the call to the stored template using the ``arguments`` function. It both declares and initializes local variables, effectively parameters. The variables are positional; they get the value of the value given in the call in the same position. If the corresponding parameter is not provided in the call then ``arguments`` assigns that variable the provided default value. If there is no default value then the variable is set to the empty string. For example, the following ``arguments`` function declares 2 variables, ``key``, ``alternate``::
+In GPM you retrieve the arguments passed in the call to the stored template using the ``arguments`` function. It both declares and initializes local variables, effectively parameters. The variables are positional; they get the value of the parameter given in the call in the same position. If the corresponding parameter is not provided in the call then ``arguments`` assigns that variable the provided default value. If there is no default value then the variable is set to the empty string. For example, the following ``arguments`` function declares 2 variables, ``key``, ``alternate``::
 
   arguments(key, alternate='series')
 
@@ -548,6 +724,8 @@ Examples, again assuming the stored template is named ``foo``:
 * ``foo('#myseries')`` -- argument ``key`` is assigned the value ``'myseries'`` and the argument ``alternate`` is assigned the default value ``'series'``.
 * ``foo('series', '#genre')`` the variable ``key`` is assigned the value ``'series'`` and the variable ``alternate`` is assigned the value ``'#genre'``.
 * ``foo()`` -- the variable ``key`` is assigned the empty string and the variable ``alternate`` is assigned the value ``'series'``.
+
+In PTM the arguments are passed in the ``arguments`` parameter, which is a list of strings. There isn't any way to specify default values. You must check the length of the ``arguments`` list to be sure that the number of arguments is what you expect.
 
 An easy way to test stored templates is using the ``Template tester`` dialog. For ease of access give it a keyboard shortcut in :guilabel:`Preferences->Advanced->Keyboard shortcuts->Template tester`. Giving the ``Stored templates`` dialog a shortcut will help switching more rapidly between the tester and editing the stored template's source code.
 
@@ -667,7 +845,7 @@ The same thing happens for authors, but using a different character for the cut,
 
 Plugboards affect the metadata written into the book when it is saved to disk or written to the device. Plugboards do not affect the metadata used by ``save to disk`` and ``send to device`` to create the file names. Instead, file names are constructed using the templates entered on the appropriate preferences window.
 
-Tips:
+Tips
 -----
 
 * Use the Template Tester to test templates. Add the tester to the context menu for books in the library and/or give it a keyboard shortcut.

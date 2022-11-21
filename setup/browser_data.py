@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -9,7 +8,6 @@ import sys
 from datetime import datetime
 from urllib.request import urlopen
 
-from polyglot.builtins import filter
 from setup import download_securely
 
 
@@ -31,7 +29,7 @@ def common_user_agents():
         count, ua = line.partition(':')[::2]
         count = int(count.strip())
         ua = ua.strip()
-        if len(ua) > 20:
+        if len(ua) > 25 and 'python' not in ua:
             ans[ua] = count
     return ans, list(sorted(ans, reverse=True, key=ans.__getitem__))
 

@@ -5,9 +5,11 @@
  * Distributed under terms of the GPL3 license.
  */
 
+#define PY_SSIZE_T_CLEAN
 #import <AppKit/AppKit.h>
 #import <AppKit/NSWindow.h>
 #import <Availability.h>
+#import <IOKit/pwr_mgt/IOPMLib.h>
 
 #include <string.h>
 #include <Python.h>
@@ -198,7 +200,91 @@ locale_names(PyObject *self, PyObject *args) {
 	return ans;
 }
 
+static PyObject*
+create_io_pm_assertion(PyObject *self, PyObject *args) {
+	char *type, *reason;
+	int on = 1;
+	if (!PyArg_ParseTuple(args, "ss|p", &type, &reason, &on)) return NULL;
+	IOPMAssertionID assertionID;
+	IOReturn rc = IOPMAssertionCreateWithName(@(type), on ? kIOPMAssertionLevelOn : kIOPMAssertionLevelOff, @(reason), &assertionID);
+	if (rc == kIOReturnSuccess) {
+		unsigned long long aid = assertionID;
+		return PyLong_FromUnsignedLongLong(aid);
+	}
+	PyErr_SetString(PyExc_OSError, mach_error_string(rc));
+	return NULL;
+}
+
+static PyObject*
+release_io_pm_assertion(PyObject *self, PyObject *args) {
+	unsigned long long aid;
+	if (!PyArg_ParseTuple(args, "K", &aid)) return NULL;
+	IOReturn rc = IOPMAssertionRelease(aid);
+	if (rc == kIOReturnSuccess) { Py_RETURN_NONE; }
+	PyErr_SetString(PyExc_OSError, mach_error_string(rc));
+	return NULL;
+}
+
+static PyObject*
+set_requires_aqua_system_appearance(PyObject *self, PyObject *yes) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if (PyObject_IsTrue(yes)) {
+        [defaults setBool:YES forKey:@"NSRequiresAquaSystemAppearance"];
+    } else {
+        if (yes == Py_None) [defaults removeObjectForKey:@"NSRequiresAquaSystemAppearance"];
+        else [defaults setBool:NO forKey:@"NSRequiresAquaSystemAppearance"];
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject*
+get_requires_aqua_system_appearance(PyObject *self, PyObject *unused) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if ([defaults objectForKey:@"NSRequiresAquaSystemAppearance"]) {
+        if ([defaults boolForKey:@"NSRequiresAquaSystemAppearance"]) { Py_RETURN_TRUE; }
+        Py_RETURN_FALSE;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject*
+set_appearance(PyObject *self, PyObject *args) {
+    const char *val;
+    if (!PyArg_ParseTuple(args, "s", &val)) return NULL;
+    [NSApplication sharedApplication];
+    if (strcmp(val, "system") == 0) {
+        NSApp.appearance = nil;
+    } else if (strcmp(val, "light") == 0) {
+        NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    }  else if (strcmp(val, "dark") == 0) {
+        NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    } else {
+        PyErr_Format(PyExc_KeyError, "Unknown appearance type: %s", val);
+        return NULL;
+    }
+    Py_RETURN_NONE;
+
+}
+
+static PyObject*
+get_appearance(PyObject *self, PyObject *args) {
+    int effective = 0;
+    if (!PyArg_ParseTuple(args, "|p", &effective)) return NULL;
+    [NSApplication sharedApplication];
+    if (effective) {
+        if (!NSApp.effectiveAppearance) return PyUnicode_FromString("");
+        return PyUnicode_FromString([NSApp.effectiveAppearance.name UTF8String]);
+    }
+    if (!NSApp.appearance) return PyUnicode_FromString("");
+    return PyUnicode_FromString([NSApp.appearance.name UTF8String]);
+}
+
+
 static PyMethodDef module_methods[] = {
+    {"get_appearance", (PyCFunction)get_appearance, METH_VARARGS, ""},
+    {"set_appearance", (PyCFunction)set_appearance, METH_VARARGS, ""},
+    {"set_requires_aqua_system_appearance", (PyCFunction)set_requires_aqua_system_appearance, METH_O, ""},
+    {"get_requires_aqua_system_appearance", (PyCFunction)get_requires_aqua_system_appearance, METH_NOARGS, ""},
     {"transient_scroller", (PyCFunction)transient_scroller, METH_NOARGS, ""},
     {"cursor_blink_time", (PyCFunction)cursor_blink_time, METH_NOARGS, ""},
     {"enable_cocoa_multithreading", (PyCFunction)enable_cocoa_multithreading, METH_NOARGS, ""},
@@ -207,12 +293,21 @@ static PyMethodDef module_methods[] = {
     {"disable_cocoa_ui_elements", (PyCFunction)disable_cocoa_ui_elements, METH_VARARGS, ""},
     {"send2trash", (PyCFunction)send2trash, METH_VARARGS, ""},
     {"locale_names", (PyCFunction)locale_names, METH_VARARGS, ""},
+    {"create_io_pm_assertion", (PyCFunction)create_io_pm_assertion, METH_VARARGS, ""},
+    {"release_io_pm_assertion", (PyCFunction)release_io_pm_assertion, METH_VARARGS, ""},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
 static int
 exec_module(PyObject *module) {
 	if (nsss_init_module(module) == -1) return -1;
+#define A(which) if (PyModule_AddStringConstant(module, #which, [(__bridge NSString *)which UTF8String]) == -1) return -1;
+	A(kIOPMAssertionTypePreventUserIdleSystemSleep);
+	A(kIOPMAssertionTypePreventUserIdleDisplaySleep);
+	A(kIOPMAssertionTypePreventSystemSleep);
+	A(kIOPMAssertionTypeNoIdleSleep);
+	A(kIOPMAssertionTypeNoDisplaySleep);
+#undef A
 	return 0;
 }
 

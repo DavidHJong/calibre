@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2019, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -20,18 +19,17 @@ from calibre.gui2.viewer.shortcuts import index_to_key_sequence
 from calibre.gui2.viewer.web_view import set_book_path, vprefs
 from calibre.gui2.widgets2 import Dialog
 from calibre.utils.icu import primary_sort_key
-from polyglot.builtins import iteritems
 
 
-class Action(object):
+class Action:
 
     __slots__ = ('icon', 'text', 'shortcut_action')
 
     def __init__(self, icon=None, text=None, shortcut_action=None):
-        self.icon, self.text, self.shortcut_action = QIcon(I(icon)), text, shortcut_action
+        self.icon, self.text, self.shortcut_action = QIcon.ic(icon), text, shortcut_action
 
 
-class Actions(object):
+class Actions:
 
     def __init__(self, a):
         self.__dict__.update(a)
@@ -69,6 +67,7 @@ def all_actions():
             'toggle_highlights': Action('highlight_only_on.png', _('Browse highlights in book'), 'toggle_highlights'),
             'select_all': Action('edit-select-all.png', _('Select all text in the current file')),
             'edit_book': Action('edit_book.png', _('Edit this book'), 'edit_book'),
+            'reload_book': Action('view-refresh.png', _('Reload this book'), 'reload_book'),
         }
         all_actions.ans = Actions(amap)
     return all_actions.ans
@@ -116,6 +115,7 @@ class ActionsToolBar(ToolBar):
     def __init__(self, parent=None):
         ToolBar.__init__(self, parent)
         self.setObjectName('actions_toolbar')
+        self.prevent_sleep_cookie = None
         self.customContextMenuRequested.connect(self.show_context_menu)
 
     def update_action_state(self, book_open):
@@ -130,7 +130,7 @@ class ActionsToolBar(ToolBar):
         a.triggered.connect(self.customize)
         a = m.addAction(_('Hide this toolbar'))
         a.triggered.connect(self.hide_toolbar)
-        m.exec_(self.mapToGlobal(pos))
+        m.exec(self.mapToGlobal(pos))
 
     def hide_toolbar(self):
         self.web_view.trigger_shortcut('toggle_toolbar')
@@ -201,6 +201,7 @@ class ActionsToolBar(ToolBar):
         self.preferences_action = shortcut_action('preferences')
         self.metadata_action = shortcut_action('metadata')
         self.edit_book_action = shortcut_action('edit_book')
+        self.reload_book_action = shortcut_action('reload_book')
         self.update_mode_action()
         self.color_scheme_action = a = QAction(aa.color_scheme.icon, aa.color_scheme.text, self)
         self.color_scheme_menu = m = QMenu(self)
@@ -217,7 +218,7 @@ class ActionsToolBar(ToolBar):
                 self.addSeparator()
             else:
                 try:
-                    self.addAction(getattr(self, '{}_action'.format(x)))
+                    self.addAction(getattr(self, f'{x}_action'))
                 except AttributeError:
                     pass
         w = self.widgetForAction(self.color_scheme_action)
@@ -234,37 +235,63 @@ class ActionsToolBar(ToolBar):
             a.setChecked(True)
             a.setToolTip(_('Switch to paged mode -- where the text is broken into pages'))
 
+    def change_sleep_permission(self, disallow_sleep=True):
+        from .control_sleep import prevent_sleep, allow_sleep
+        if disallow_sleep:
+            if self.prevent_sleep_cookie is None:
+                try:
+                    self.prevent_sleep_cookie = prevent_sleep()
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+        else:
+            if self.prevent_sleep_cookie is not None:
+                try:
+                    allow_sleep(self.prevent_sleep_cookie)
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+                self.prevent_sleep_cookie = None
+
     def update_autoscroll_action(self, active):
         self.autoscroll_action.setChecked(active)
         self.autoscroll_action.setToolTip(
             _('Turn off auto-scrolling') if active else _('Turn on auto-scrolling'))
+        self.change_sleep_permission(active)
 
     def update_read_aloud_action(self, active):
         self.toggle_read_aloud_action.setChecked(active)
         self.toggle_read_aloud_action.setToolTip(
             _('Stop reading') if active else _('Read the text of the book aloud'))
+        self.change_sleep_permission(active)
 
     def update_reference_mode_action(self, enabled):
         self.reference_action.setChecked(enabled)
 
     def update_dock_actions(self, visibility_map):
         for k in ('toc', 'bookmarks', 'lookup', 'inspector', 'highlights'):
-            ac = getattr(self, '{}_action'.format(k))
+            ac = getattr(self, f'{k}_action')
             ac.setChecked(visibility_map[k])
 
     def set_tooltips(self, rmap):
-        for sc, a in iteritems(self.shortcut_actions):
-            if a.isCheckable():
-                continue
+        aliases = {'show_chrome_force': 'show_chrome'}
+
+        def as_text(idx):
+            return index_to_key_sequence(idx).toString(QKeySequence.SequenceFormat.NativeText)
+
+        def set_it(a, sc):
             x = rmap.get(sc)
             if x is not None:
-
-                def as_text(idx):
-                    return index_to_key_sequence(idx).toString(QKeySequence.SequenceFormat.NativeText)
-
                 keys = sorted(filter(None, map(as_text, x)))
                 if keys:
                     a.setToolTip('{} [{}]'.format(a.text(), ', '.join(keys)))
+
+        for sc, a in self.shortcut_actions.items():
+            sc = aliases.get(sc, sc)
+            set_it(a, sc)
+
+        for a, sc in ((self.forward_action, 'forward'), (self.back_action, 'back'), (self.search_action, 'start_search')):
+            set_it(a, sc)
 
     def populate_open_menu(self):
         m = self.open_menu
@@ -278,10 +305,13 @@ class ActionsToolBar(ToolBar):
                     continue
                 if hasattr(set_book_path, 'pathtoebook') and path == os.path.abspath(set_book_path.pathtoebook):
                     continue
-                m.addAction('{}\t {}'.format(
-                    elided_text(entry['title'], pos='right', width=250),
-                    elided_text(os.path.basename(path), width=250))).triggered.connect(partial(
-                    self.open_book_at_path.emit, path))
+                if os.path.exists(path):
+                    m.addAction('{}\t {}'.format(
+                        elided_text(entry['title'], pos='right', width=250),
+                        elided_text(os.path.basename(path), width=250))).triggered.connect(partial(
+                        self.open_book_at_path.emit, path))
+                else:
+                    self.web_view.remove_recently_opened(path)
 
     def on_view_created(self, data):
         self.default_color_schemes = data['default_color_schemes']
@@ -295,7 +325,7 @@ class ActionsToolBar(ToolBar):
         def add_action(key, defns):
             a = m.addAction(defns[key]['name'])
             a.setCheckable(True)
-            a.setObjectName('color-switch-action:{}'.format(key))
+            a.setObjectName(f'color-switch-action:{key}')
             a.triggered.connect(self.color_switch_triggerred)
             if key == ccs:
                 a.setChecked(True)
@@ -319,7 +349,7 @@ class ActionsToolBar(ToolBar):
 
     def customize(self):
         d = ConfigureToolBar(parent=self.parent())
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.add_actions()
 
 
@@ -408,11 +438,11 @@ class ConfigureToolBar(Dialog):
         self.bv = bv = QVBoxLayout()
         bv.addStretch(10)
         self.add_button = b = QToolButton(self)
-        b.setIcon(QIcon(I('forward.png'))), b.setToolTip(_('Add selected actions to the toolbar'))
+        b.setIcon(QIcon.ic('forward.png')), b.setToolTip(_('Add selected actions to the toolbar'))
         bv.addWidget(b), bv.addStretch(10)
         b.clicked.connect(self.add_actions)
         self.remove_button = b = QToolButton(self)
-        b.setIcon(QIcon(I('back.png'))), b.setToolTip(_('Remove selected actions from the toolbar'))
+        b.setIcon(QIcon.ic('back.png')), b.setToolTip(_('Remove selected actions from the toolbar'))
         b.clicked.connect(self.remove_actions)
         bv.addWidget(b), bv.addStretch(10)
 
@@ -465,4 +495,4 @@ class ConfigureToolBar(Dialog):
 if __name__ == '__main__':
     from calibre.gui2 import Application
     app = Application([])
-    ConfigureToolBar().exec_()
+    ConfigureToolBar().exec()

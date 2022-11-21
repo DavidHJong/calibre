@@ -9,7 +9,6 @@
     "use strict";
     var com_id = "COM_ID";
     var com_counter = 0;
-    var dark_css = CSS;
     var settings = SETTINGS;
 
     function onclick(event) {
@@ -43,8 +42,9 @@
         for (let elem of document.body.getElementsByTagName('*')) {  
             var style = window.getComputedStyle(elem);
             if (style.display === 'block' || style.display === 'flex-box' || style.display === 'box') {
-                elem.classList.add("calibre_toc_hover");
-                elem.onclick = onclick;
+                elem.addEventListener('click', onclick);
+                elem.addEventListener('mouseover', function(ev) { this.classList.add('calibre_toc_hover'); ev.stopPropagation(); });
+                elem.addEventListener('mouseout', function(ev) { this.classList.remove('calibre_toc_hover'); ev.stopPropagation(); });
             }
         }
     }
@@ -64,10 +64,10 @@
         var css = '';
         css += '.calibre_toc_hover:hover { cursor: pointer !important; border-top: solid 5px green !important }\n\n';
         if (settings.link) css += 'html > body :link, html > body :link * { color: ' + settings.link + ' !important; }\n\n';
-        if (settings.is_dark_theme) { css += dark_css; }
+        if (settings.is_dark_theme) { css = ':root { color-scheme: dark; }' + css; }
         var style = document.createElement('style');
         style.textContent = css;
-        document.body.appendChild(style);
+        document.documentElement.appendChild(style);
     }
 
     apply_body_colors();

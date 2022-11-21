@@ -48,6 +48,34 @@ def first_annot_in_range(r, annot_id_uuid_map):
                 break
 
 
+def all_annots_in_range(r, annot_id_uuid_map, ans):
+    parent = r.commonAncestorContainer
+    doc = parent.ownerDocument or document
+    iterator = doc.createNodeIterator(parent)
+    in_range = False
+    while True:
+        node = iterator.nextNode()
+        if not node:
+            break
+        if not in_range and node.isSameNode(r.startContainer):
+            in_range = True
+        if in_range:
+            if node.dataset and node.dataset.calibreRangeWrapper:
+                annot_id = annot_id_uuid_map[node.dataset.calibreRangeWrapper]
+                if annot_id:
+                    ans.push(annot_id)
+            if node.isSameNode(r.endContainer):
+                break
+    return ans
+
+
+def all_annots_in_selection(sel, annot_id_uuid_map):
+    ans = v'[]'
+    for i in range(sel.rangeCount):
+        all_annots_in_range(sel.getRangeAt(i), annot_id_uuid_map, ans)
+    return ans
+
+
 def remove(node):
     if node.parentNode:
         node.parentNode.removeChild(node)
@@ -99,11 +127,6 @@ def wrap_range(r, wrapper):
     except:
         wrapper.appendChild(r.extractContents())
         r.insertNode(wrapper)
-    # remove any empty text nodes created by surroundContents() on either
-    # side of the wrapper. This happens for instance on Chrome when
-    # wrapping all text inside <i>some text</i>
-    r.commonAncestorContainer.normalize()
-
 
 def create_wrapper_function(wrapper_elem, r, intersecting_wrappers, process_wrapper, all_wrappers):
     start_node = r.startContainer
@@ -159,6 +182,10 @@ def wrap_text_in_range(styler, r, class_to_add_to_last, process_wrapper):
     all_wrappers = v'[]'
     wrap_node = create_wrapper_function(wrapper_elem, r, intersecting_wrappers, process_wrapper, all_wrappers)
     text_nodes_in_range(r).map(wrap_node)
+    # remove any empty text nodes created by surroundContents() on either
+    # side of the wrapper. This happens for instance on Chrome when
+    # wrapping all text inside <i>some text</i>
+    r.commonAncestorContainer.normalize()
     crw = wrapper_elem.dataset.calibreRangeWrapper
     v'delete intersecting_wrappers[crw]'
     if class_to_add_to_last and all_wrappers.length:

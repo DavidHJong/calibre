@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -13,20 +12,20 @@ __all__ = [
     'git_version',
     'develop', 'install',
     'kakasi', 'rapydscript', 'cacerts', 'recent_uas', 'resources',
-    'check', 'to3', 'unicode_check', 'iterators_check', 'test', 'test_rs',
+    'check', 'test', 'test_rs', 'upgrade_source_code',
     'sdist', 'bootstrap', 'extdev',
     'manual', 'tag_release',
     'upload_to_server',
     'upload_installers',
     'upload_user_manual', 'upload_demo', 'reupload',
     'stage1', 'stage2', 'stage3', 'stage4', 'stage5', 'publish', 'publish_betas',
-    'linux', 'linux32', 'linux64', 'win', 'win32', 'win64', 'osx', 'build_dep',
+    'linux', 'linux64', 'linuxarm64', 'win', 'win64', 'osx', 'build_dep',
     'export_packages', 'hyphenation', 'liberation_fonts', 'csslint'
 ]
 
-from setup.installers import Linux, Win, OSX, Linux32, Linux64, Win32, Win64, ExtDev, BuildDep, ExportPackages
-linux, linux32, linux64 = Linux(), Linux32(), Linux64()
-win, win32, win64 = Win(), Win32(), Win64()
+from setup.installers import Linux, Win, OSX, Linux64, LinuxArm64, Win64, ExtDev, BuildDep, ExportPackages
+linux, linux64, linuxarm64 = Linux(), Linux64(), LinuxArm64()
+win, win64 = Win(), Win64()
 osx = OSX()
 extdev = ExtDev()
 build_dep = BuildDep()
@@ -66,12 +65,9 @@ bootstrap = Bootstrap()
 from setup.gui import GUI
 gui = GUI()
 
-from setup.check import Check
+from setup.check import Check, UpgradeSourceCode
 check = Check()
-from setup.port import To3, UnicodeCheck, IteratorsCheck
-to3 = To3()
-unicode_check = UnicodeCheck()
-iterators_check = IteratorsCheck()
+upgrade_source_code = UpgradeSourceCode()
 
 from setup.test import Test, TestRS
 test = Test()

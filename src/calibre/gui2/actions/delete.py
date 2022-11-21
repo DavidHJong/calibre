@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -12,7 +11,7 @@ from collections import Counter
 from functools import partial
 from qt.core import QDialog, QModelIndex, QObject, QTimer
 
-from calibre.constants import ismacos
+from calibre.constants import ismacos, trash_name
 from calibre.gui2 import Aborted, error_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2.dialogs.confirm_delete import confirm
@@ -35,11 +34,11 @@ class MultiDeleter(QObject):  # {{{
         self.permanent = False
         if can_recycle and len(ids) > 100:
             if question_dialog(gui, _('Are you sure?'), '<p>'+
-                _('You are trying to delete %d books. '
-                    'Sending so many files to the Recycle'
-                    ' Bin <b>can be slow</b>. Should calibre skip the'
-                    ' recycle bin? If you click Yes the files'
-                    ' will be <b>permanently deleted</b>.')%len(ids),
+                _('You are trying to delete {0} books. '
+                    'Sending so many files to the {1}'
+                    ' <b>can be slow</b>. Should calibre skip the'
+                    ' {1}? If you click Yes the files'
+                    ' will be <b>permanently deleted</b>.').format(len(ids), trash_name()),
                 add_abort_button=True
             ):
                 self.permanent = True
@@ -158,11 +157,11 @@ class DeleteAction(InterfaceAction):
         for x in ids:
             fmts_ = db.formats(x, index_is_id=True, verify_formats=False)
             if fmts_:
-                for x in frozenset([x.lower() for x in fmts_.split(',')]):
+                for x in frozenset(x.lower() for x in fmts_.split(',')):
                     c[x] += 1
         d = SelectFormats(c, msg, parent=self.gui, exclude=exclude,
                 single=single)
-        if d.exec_() != QDialog.DialogCode.Accepted:
+        if d.exec() != QDialog.DialogCode.Accepted:
             return None
         return d.selected_formats
 
@@ -170,9 +169,15 @@ class DeleteAction(InterfaceAction):
         rows = self.gui.library_view.selectionModel().selectedRows()
         if not rows or len(rows) == 0:
             d = error_dialog(self.gui, err_title, _('No book selected'))
-            d.exec_()
+            d.exec()
             return set()
         return set(map(self.gui.library_view.model().id, rows))
+
+    def _remove_formats_from_ids(self, fmts, ids):
+        self.gui.library_view.model().db.new_api.remove_formats({bid: fmts for bid in ids})
+        self.gui.library_view.model().refresh_ids(ids)
+        self.gui.library_view.model().current_changed(self.gui.library_view.currentIndex(),
+                self.gui.library_view.currentIndex())
 
     def remove_format_by_id(self, book_id, fmt):
         title = self.gui.current_db.title(book_id, index_is_id=True)
@@ -181,13 +186,28 @@ class DeleteAction(InterfaceAction):
             '%(title)s. Are you sure?')%dict(fmt=fmt, title=title)) +
                        '</p>', 'library_delete_specific_format', self.gui):
             return
+        self._remove_formats_from_ids((fmt,), (book_id,))
 
-        self.gui.library_view.model().db.remove_format(book_id, fmt,
-                index_is_id=True, notify=False)
-        self.gui.library_view.model().refresh_ids([book_id])
-        self.gui.library_view.model().current_changed(self.gui.library_view.currentIndex(),
-                self.gui.library_view.currentIndex())
-        self.gui.tags_view.recount_with_position_based_index()
+    def remove_format_from_selected_books(self, fmt):
+        ids = self._get_selected_ids()
+        if not ids:
+            return
+        db = self.gui.current_db.new_api
+        fmt = fmt.upper()
+        for bid in ids:
+            if fmt in db.formats(bid):
+                break
+        else:
+            return error_dialog(self.gui, _('Format not found'), _('The {} format is not present in the selected books.').format(fmt), show=True)
+        if not confirm(
+            '<p>'+ ngettext(
+                _('The {fmt} format will be <b>permanently deleted</b> from {title}.'),
+                _('The {fmt} format will be <b>permanently deleted</b> from all {num} selected books.'),
+                len(ids)).format(fmt=fmt.upper(), num=len(ids), title=self.gui.current_db.title(next(iter(ids)), index_is_id=True)
+                                 ) + ' ' + _('Are you sure?'), 'library_delete_specific_format_from_selected', self.gui
+        ):
+            return
+        self._remove_formats_from_ids((fmt,), ids)
 
     def restore_format(self, book_id, original_fmt):
         self.gui.current_db.restore_original_format(book_id, original_fmt)
@@ -269,7 +289,7 @@ class DeleteAction(InterfaceAction):
         if not self.gui.device_manager.is_device_present:
             d = error_dialog(self.gui, _('Cannot delete books'),
                              _('No device is connected'))
-            d.exec_()
+            d.exec()
             return
         ids = self._get_selected_ids()
         if not ids:
@@ -287,10 +307,10 @@ class DeleteAction(InterfaceAction):
         if not some_to_delete:
             d = error_dialog(self.gui, _('No books to delete'),
                              _('None of the selected books are on the device'))
-            d.exec_()
+            d.exec()
             return
         d = DeleteMatchingFromDeviceDialog(self.gui, to_delete)
-        if d.exec_():
+        if d.exec():
             paths = {}
             ids = {}
             for (model, id, path) in d.result:
@@ -316,6 +336,13 @@ class DeleteAction(InterfaceAction):
         ids = self._get_selected_ids()
         if not ids:
             return
+        if not confirm('<p>'+ngettext(
+                'The cover from the selected book will be <b>permanently deleted</b>. Are you sure?',
+                'The covers from the {} selected books will be <b>permanently deleted</b>. '
+                'Are you sure?', len(ids)).format(len(ids)),
+                'library_delete_covers', self.gui):
+            return
+
         for id in ids:
             self.gui.library_view.model().db.remove_cover(id)
         self.gui.library_view.model().refresh_ids(ids)
@@ -381,7 +408,7 @@ class DeleteAction(InterfaceAction):
         if len(to_delete_ids) < 5:
             try:
                 view.model().delete_books_by_id(to_delete_ids)
-            except IOError as err:
+            except OSError as err:
                 if err.errno == errno.EACCES:
                     import traceback
                     fname = os.path.basename(getattr(err, 'filename', 'file') or 'file')

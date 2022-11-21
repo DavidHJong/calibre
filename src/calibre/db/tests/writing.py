@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 
 
 __license__   = 'GPL v3'
@@ -15,7 +14,7 @@ from calibre.ebooks.metadata.book.base import Metadata
 from calibre.utils.date import UNDEFINED_DATE
 from calibre.db.tests.base import BaseTest, IMG
 from calibre.db.backend import FTSQueryError
-from polyglot.builtins import iteritems, itervalues, unicode_type
+from polyglot.builtins import iteritems, itervalues
 
 
 class WritingTest(BaseTest):
@@ -402,10 +401,10 @@ class WritingTest(BaseTest):
         mi = cache.get_metadata(1)
         old_path = cache.field_for('path', 1)
         old_title, old_author = mi.title, mi.authors[0]
-        ae(old_path, '%s/%s (1)' % (old_author, old_title))
+        ae(old_path, f'{old_author}/{old_title} (1)')
         mi.title, mi.authors = 'New Title', ['New Author']
         cache.set_metadata(1, mi)
-        ae(cache.field_for('path', 1), '%s/%s (1)' % (mi.authors[0], mi.title))
+        ae(cache.field_for('path', 1), f'{mi.authors[0]}/{mi.title} (1)')
         p = cache.format_abspath(1, 'FMT1')
         self.assertTrue(mi.authors[0] in p and mi.title in p)
 
@@ -426,10 +425,7 @@ class WritingTest(BaseTest):
         self.compare_metadata(nmi, oldmi, exclude={'last_modified', 'format_metadata', 'formats'})
         cache.set_metadata(1, mi2, force_changes=True)
         nmi2 = cache.get_metadata(1, get_cover=True, cover_as_data=True)
-        # The new code does not allow setting of #series_index to None, instead
-        # it is reset to 1.0
-        ae(nmi2.get_extra('#series'), 1.0)
-        self.compare_metadata(nmi2, oldmi2, exclude={'last_modified', 'format_metadata', '#series_index', 'formats'})
+        self.compare_metadata(nmi2, oldmi2, exclude={'last_modified', 'format_metadata', 'formats'})
 
         cache = self.init_cache(self.cloned_library)
         mi = cache.get_metadata(1)
@@ -654,24 +650,28 @@ class WritingTest(BaseTest):
 
     def test_dump_and_restore(self):  # {{{
         ' Test roundtripping the db through SQL '
-        cache = self.init_cache()
-        uv = int(cache.backend.user_version)
-        all_ids = cache.all_book_ids()
-        cache.dump_and_restore()
-        self.assertEqual(cache.set_field('title', {1:'nt'}), {1}, 'database connection broken')
-        cache = self.init_cache()
-        self.assertEqual(cache.all_book_ids(), all_ids, 'dump and restore broke database')
-        self.assertEqual(int(cache.backend.user_version), uv)
+        import warnings
+        with warnings.catch_warnings():
+            # on python 3.10 apsw raises a deprecation warning which causes this test to fail on CI
+            warnings.simplefilter('ignore', DeprecationWarning)
+            cache = self.init_cache()
+            uv = int(cache.backend.user_version)
+            all_ids = cache.all_book_ids()
+            cache.dump_and_restore()
+            self.assertEqual(cache.set_field('title', {1:'nt'}), {1}, 'database connection broken')
+            cache = self.init_cache()
+            self.assertEqual(cache.all_book_ids(), all_ids, 'dump and restore broke database')
+            self.assertEqual(int(cache.backend.user_version), uv)
     # }}}
 
     def test_set_author_data(self):  # {{{
         cache = self.init_cache()
         adata = cache.author_data()
-        ldata = {aid:unicode_type(aid) for aid in adata}
+        ldata = {aid:str(aid) for aid in adata}
         self.assertEqual({1,2,3}, cache.set_link_for_authors(ldata))
         for c in (cache, self.init_cache()):
             self.assertEqual(ldata, {aid:d['link'] for aid, d in iteritems(c.author_data())})
-        self.assertEqual({3}, cache.set_link_for_authors({aid:'xxx' if aid == max(adata) else unicode_type(aid) for aid in adata}),
+        self.assertEqual({3}, cache.set_link_for_authors({aid:'xxx' if aid == max(adata) else str(aid) for aid in adata}),
                          'Setting the author link to the same value as before, incorrectly marked some books as dirty')
         sdata = {aid:'%s, changed' % aid for aid in adata}
         self.assertEqual({1,2,3}, cache.set_sort_for_authors(sdata))
@@ -791,6 +791,7 @@ class WritingTest(BaseTest):
 
         cache.set_annotations_for_book(1, 'moo', annot_list)
         amap = cache.annotations_map_for_book(1, 'moo')
+        self.assertEqual(3, len(cache.all_annotations_for_book(1)))
         self.assertEqual([x[0] for x in annot_list], map_as_list(amap))
         self.assertFalse(cache.dirtied_cache)
         cache.check_dirtied_annotations()
@@ -804,8 +805,10 @@ class WritingTest(BaseTest):
         self.assertEqual([1, 3], [x['id'] for x in results])
         results = cache.search_annotations('"changed"', annotation_type='bookmark')
         self.assertEqual([1], [x['id'] for x in results])
-        results = cache.search_annotations('"Change"')
+        results = cache.search_annotations('"Changed"')  # changed and change stem differently in english and other euro languages
         self.assertEqual([1, 3], [x['id'] for x in results])
+        results = cache.search_annotations('"SOMe"')
+        self.assertEqual([3], [x['id'] for x in results])
         results = cache.search_annotations('"change"', use_stemming=False)
         self.assertFalse(results)
         results = cache.search_annotations('"bookmark1"', highlight_start='[', highlight_end=']')
@@ -813,6 +816,10 @@ class WritingTest(BaseTest):
         results = cache.search_annotations('"word"', highlight_start='[', highlight_end=']', snippet_size=3)
         self.assertEqual(results[0]['text'], '…some [word] changed…')
         self.assertRaises(FTSQueryError, cache.search_annotations, 'AND OR')
+        fts_l = [a(type='bookmark', title='路坎坷走来', seq=1),]
+        cache.set_annotations_for_book(1, 'moo', fts_l)
+        results = cache.search_annotations('路', highlight_start='[', highlight_end=']')
+        self.assertEqual(results[0]['text'], '[路]坎坷走来')
 
         annot_list[0][0]['title'] = 'changed title'
         cache.set_annotations_for_book(1, 'moo', annot_list)
@@ -831,5 +838,82 @@ class WritingTest(BaseTest):
         cache.restore_annotations(1, list(opf.read_annotations()))
         amap = cache.annotations_map_for_book(1, 'moo')
         self.assertEqual([x[0] for x in annot_list], map_as_list(amap))
+
+    # }}}
+
+    def test_changed_events(self):  # {{{
+        def ae(l, r):
+            # We need to sleep a bit to allow events to happen on its thread
+            import time
+            st = time.monotonic()
+            while time.monotonic() - st < 1:
+                time.sleep(0.01)
+                try:
+                    self.assertEqual(l, r)
+                    return
+                except Exception:
+                    pass
+            self.assertEqual(l, r)
+
+        cache = self.init_cache(self.cloned_library)
+        ae(cache.all_book_ids(), {1, 2, 3})
+
+        event_set = set()
+
+        def event_func(t, library_id, *args):
+            nonlocal event_set, ae
+            event_set.update(args[0][1])
+        cache.add_listener(event_func)
+
+        # Test that setting metadata to itself doesn't generate any events
+        for id_ in cache.all_book_ids():
+            cache.set_metadata(id_, cache.get_metadata(id_))
+
+        ae(event_set, set())
+
+        # test setting a single field
+        cache.set_field('tags', {1:'foo'})
+        ae(event_set, {1})
+
+        # test setting multiple books. Book 1 shouldn't get an event because it
+        # isn't being changed
+        event_set = set()
+        cache.set_field('tags', {1:'foo', 2:'bar', 3:'mumble'})
+        ae(event_set, {2, 3})
+
+        # test setting a many-many field to empty
+        event_set = set()
+        cache.set_field('tags', {1:''})
+        ae(event_set, {1,})
+        event_set = set()
+        cache.set_field('tags', {1:''})
+        ae(event_set, set())
+
+        # test setting title
+        event_set = set()
+        cache.set_field('title', {1:'Book 1'})
+        ae(event_set, {1})
+        ae(cache.field_for('title', 1), 'Book 1')
+
+        # test setting series
+        event_set = set()
+        cache.set_field('series', {1:'GreatBooks [1]'})
+        cache.set_field('series', {2:'GreatBooks [0]'})
+        ae(event_set, {1,2})
+        ae(cache.field_for('series', 1), 'GreatBooks')
+        ae(cache.field_for('series_index', 1), 1.0)
+        ae(cache.field_for('series', 2), 'GreatBooks')
+        ae(cache.field_for('series_index', 2), 0.0)
+
+        # now series_index
+        event_set = set()
+        cache.set_field('series_index', {1:2})
+        ae(event_set, {1})
+        ae(cache.field_for('series_index', 1), 2.0)
+        event_set = set()
+        cache.set_field('series_index', {1:2, 2:3.5})  # book 1 isn't changed
+        ae(event_set, {2})
+        ae(cache.field_for('series_index', 1), 2.0)
+        ae(cache.field_for('series_index', 2), 3.5)
 
     # }}}

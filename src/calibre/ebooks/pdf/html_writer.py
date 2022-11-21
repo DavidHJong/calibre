@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2019, Kovid Goyal <kovid at kovidgoyal.net>
 
 # Imports {{{
@@ -11,27 +10,34 @@ import os
 import signal
 import sys
 from collections import namedtuple
+from functools import lru_cache
 from html5_parser import parse
 from io import BytesIO
 from itertools import count, repeat
 from qt.core import (
-    QApplication, QMarginsF, QObject, QPageLayout, Qt, QTimer, QUrl, pyqtSignal
+    QApplication, QByteArray, QMarginsF, QObject, QPageLayout, Qt, QTimer, QUrl,
+    pyqtSignal, sip
 )
-from qt.webengine import QWebEngineUrlRequestInterceptor
-from qt.webengine import QWebEnginePage, QWebEngineProfile
+from qt.webengine import (
+    QWebEnginePage, QWebEngineProfile, QWebEngineSettings,
+    QWebEngineUrlRequestInterceptor, QWebEngineUrlRequestJob,
+    QWebEngineUrlSchemeHandler
+)
 
 from calibre import detect_ncpus, human_readable, prepare_string_for_xml
-from calibre.constants import __version__, iswindows
+from calibre.constants import (
+    FAKE_HOST, FAKE_PROTOCOL, __version__, ismacos, iswindows
+)
 from calibre.ebooks.metadata.xmp import metadata_to_xmp_packet
 from calibre.ebooks.oeb.base import XHTML, XPath
 from calibre.ebooks.oeb.polish.container import Container as ContainerBase
 from calibre.ebooks.oeb.polish.toc import get_toc
+from calibre.ebooks.oeb.polish.utils import guess_type
 from calibre.ebooks.pdf.image_writer import (
     Image, PDFMetadata, draw_image_page, get_page_layout
 )
 from calibre.ebooks.pdf.render.serialize import PDFStream
 from calibre.gui2 import setup_unix_signals
-from calibre.gui2.webengine import secure_webengine
 from calibre.srv.render_book import check_for_maths
 from calibre.utils.fonts.sfnt.container import Sfnt, UnsupportedFont
 from calibre.utils.fonts.sfnt.errors import NoGlyphs
@@ -43,7 +49,8 @@ from calibre.utils.podofo import (
     dedup_type3_fonts, get_podofo, remove_unused_fonts, set_metadata_implementation
 )
 from calibre.utils.short_uuid import uuid4
-from polyglot.builtins import filter, iteritems, map, range, unicode_type
+from calibre.utils.webengine import secure_webengine, send_reply, setup_profile
+from polyglot.builtins import as_bytes, iteritems
 from polyglot.urllib import urlparse
 
 OK, KILL_SIGNAL = range(0, 2)
@@ -62,7 +69,7 @@ def data_as_pdf_doc(data):
 def preprint_js():
     ans = getattr(preprint_js, 'ans', None)
     if ans is None:
-        ans = preprint_js.ans = P('pdf-preprint.js', data=True).decode('utf-8')
+        ans = preprint_js.ans = P('pdf-preprint.js', data=True).decode('utf-8').replace('HYPHEN_CHAR', 'true' if ismacos else 'false', 1)
     return ans
 
 
@@ -137,6 +144,87 @@ class Container(ContainerBase):
         ContainerBase.__init__(self, root_dir or os.path.dirname(opf_path), opf_path, log)
 
 
+class UrlSchemeHandler(QWebEngineUrlSchemeHandler):
+
+    def __init__(self, container, parent=None):
+        QWebEngineUrlSchemeHandler.__init__(self, parent)
+        self.allowed_hosts = (FAKE_HOST,)
+        self.container = container
+
+    def requestStarted(self, rq):
+        if bytes(rq.requestMethod()) != b'GET':
+            return self.fail_request(rq, QWebEngineUrlRequestJob.Error.RequestDenied)
+        url = rq.requestUrl()
+        host = url.host()
+        if host not in self.allowed_hosts or url.scheme() != FAKE_PROTOCOL:
+            return self.fail_request(rq)
+        path = url.path()
+        if path.startswith('/book/'):
+            name = path[len('/book/'):]
+            try:
+                mime_type = self.container.mime_map.get(name) or guess_type(name)
+                try:
+                    with self.container.open(name) as f:
+                        q = os.path.abspath(f.name)
+                        if not q.startswith(self.container.root):
+                            raise FileNotFoundError('Attempt to leave sandbox')
+                        data = f.read()
+                except FileNotFoundError:
+                    print(f'Could not find file {name} in book', file=sys.stderr)
+                    rq.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
+                    return
+                data = as_bytes(data)
+                mime_type = {
+                    # Prevent warning in console about mimetype of fonts
+                    'application/vnd.ms-opentype':'application/x-font-ttf',
+                    'application/x-font-truetype':'application/x-font-ttf',
+                    'application/font-sfnt': 'application/x-font-ttf',
+                }.get(mime_type, mime_type)
+                send_reply(rq, mime_type, data)
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                return self.fail_request(rq, QWebEngineUrlRequestJob.Error.RequestFailed)
+        elif path.startswith('/mathjax/'):
+            try:
+                ignore, ignore, base, rest = path.split('/', 3)
+            except ValueError:
+                print(f'Could not find file {path} in mathjax', file=sys.stderr)
+                rq.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
+                return
+            try:
+                mime_type = guess_type(rest)
+                if base == 'loader' and '/' not in rest and '\\' not in rest:
+                    data = P(rest, allow_user_override=False, data=True)
+                elif base == 'data':
+                    q = os.path.abspath(os.path.join(mathjax_dir(), rest))
+                    if not q.startswith(mathjax_dir()):
+                        raise FileNotFoundError('')
+                    with open(q, 'rb') as f:
+                        data = f.read()
+                else:
+                    raise FileNotFoundError('')
+                send_reply(rq, mime_type, data)
+            except FileNotFoundError:
+                print(f'Could not find file {path} in mathjax', file=sys.stderr)
+                rq.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
+                return
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                return self.fail_request(rq, QWebEngineUrlRequestJob.Error.RequestFailed)
+        else:
+            return self.fail_request(rq)
+
+    def fail_request(self, rq, fail_code=None):
+        if fail_code is None:
+            fail_code = QWebEngineUrlRequestJob.Error.UrlNotFound
+        rq.fail(fail_code)
+        print(f"Blocking FAKE_PROTOCOL request: {rq.requestUrl().toString()} with code: {fail_code}", file=sys.stderr)
+
+# }}}
+
+
 class Renderer(QWebEnginePage):
 
     work_done = pyqtSignal(object, object)
@@ -150,24 +238,24 @@ class Renderer(QWebEnginePage):
         self.settle_time = 0
         self.wait_for_title = None
         s = self.settings()
-        s.setAttribute(s.JavascriptEnabled, True)
-        s.setFontSize(s.DefaultFontSize, opts.pdf_default_font_size)
-        s.setFontSize(s.DefaultFixedFontSize, opts.pdf_mono_font_size)
-        s.setFontSize(s.MinimumLogicalFontSize, 8)
-        s.setFontSize(s.MinimumFontSize, 8)
+        s.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+        s.setFontSize(QWebEngineSettings.FontSize.DefaultFontSize, int(opts.pdf_default_font_size))
+        s.setFontSize(QWebEngineSettings.FontSize.DefaultFixedFontSize, int(opts.pdf_mono_font_size))
+        s.setFontSize(QWebEngineSettings.FontSize.MinimumLogicalFontSize, 8)
+        s.setFontSize(QWebEngineSettings.FontSize.MinimumFontSize, 8)
         std = {
             'serif': opts.pdf_serif_family,
             'sans' : opts.pdf_sans_family,
             'mono' : opts.pdf_mono_family
         }.get(opts.pdf_standard_font, opts.pdf_serif_family)
         if std:
-            s.setFontFamily(s.StandardFont, std)
+            s.setFontFamily(QWebEngineSettings.FontFamily.StandardFont, std)
         if opts.pdf_serif_family:
-            s.setFontFamily(s.SerifFont, opts.pdf_serif_family)
+            s.setFontFamily(QWebEngineSettings.FontFamily.SerifFont, opts.pdf_serif_family)
         if opts.pdf_sans_family:
-            s.setFontFamily(s.SansSerifFont, opts.pdf_sans_family)
+            s.setFontFamily(QWebEngineSettings.FontFamily.SansSerifFont, opts.pdf_sans_family)
         if opts.pdf_mono_family:
-            s.setFontFamily(s.FixedFont, opts.pdf_mono_family)
+            s.setFontFamily(QWebEngineSettings.FontFamily.FixedFont, opts.pdf_mono_family)
 
         self.titleChanged.connect(self.title_changed)
         self.loadStarted.connect(self.load_started)
@@ -189,7 +277,7 @@ class Renderer(QWebEnginePage):
         self.load_hang_check_timer.start()
 
     def on_load_hang(self):
-        self.log(self.log_prefix, 'Loading not complete after {} seconds, aborting.'.format(int(monotonic() - self.load_started_at)))
+        self.log(self.log_prefix, f'Loading not complete after {int(monotonic() - self.load_started_at)} seconds, aborting.')
         self.load_finished(False)
 
     def title_changed(self, title):
@@ -205,7 +293,7 @@ class Renderer(QWebEnginePage):
         self.load_hang_check_timer.stop()
         if not ok:
             self.working = False
-            self.work_done.emit(self, 'Load of {} failed'.format(self.url().toString()))
+            self.work_done.emit(self, f'Load of {self.url().toString()} failed')
             return
         if self.wait_for_title and self.title() != self.wait_for_title:
             self.log(self.log_prefix, 'Load finished, waiting for title to change to:', self.wait_for_title)
@@ -214,7 +302,7 @@ class Renderer(QWebEnginePage):
 
     def javaScriptConsoleMessage(self, level, message, linenum, source_id):
         try:
-            self.log('{}:{}:{}'.format(source_id, linenum, message))
+            self.log(f'{source_id}:{linenum}:{message}')
         except Exception:
             pass
 
@@ -226,7 +314,8 @@ class Renderer(QWebEnginePage):
 
     def printing_done(self, pdf_data):
         self.working = False
-        self.work_done.emit(self, bytes(pdf_data))
+        if not sip.isdeleted(self):
+            self.work_done.emit(self, bytes(pdf_data))
 
     def convert_html_file(self, path, page_layout, settle_time=0, wait_for_title=None):
         self.working = True
@@ -235,7 +324,9 @@ class Renderer(QWebEnginePage):
 
         self.settle_time = settle_time
         self.page_layout = page_layout
-        self.setUrl(QUrl.fromLocalFile(path))
+        url = QUrl(f'{FAKE_PROTOCOL}://{FAKE_HOST}/')
+        url.setPath(path)
+        self.setUrl(url)
 
 
 class RequestInterceptor(QWebEngineUrlRequestInterceptor):
@@ -243,32 +334,27 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
     def interceptRequest(self, request_info):
         method = bytes(request_info.requestMethod())
         if method not in (b'GET', b'HEAD'):
-            self.log.warn('Blocking URL request with method: {}'.format(method))
+            self.log.warn(f'Blocking URL request with method: {method}')
             request_info.block(True)
             return
         qurl = request_info.requestUrl()
-        if qurl.scheme() != 'file':
-            self.log.warn('Blocking URL request with scheme: {}'.format(qurl.scheme()))
-            request_info.block(True)
-            return
-        path = qurl.toLocalFile()
-        path = os.path.normcase(os.path.abspath(path))
-        if not path.startswith(self.container_root) and not path.startswith(self.resources_root):
-            self.log.warn('Blocking request with path: {}'.format(path))
+        if qurl.scheme() not in (FAKE_PROTOCOL,):
+            self.log.warn(f'Blocking URL request {qurl.toString()} as it is not for a resource in the book')
             request_info.block(True)
             return
 
 
 class RenderManager(QObject):
 
-    def __init__(self, opts, log, container_root):
+    def __init__(self, opts, log, container):
         QObject.__init__(self)
         self.interceptor = RequestInterceptor(self)
         self.has_maths = {}
         self.interceptor.log = self.log = log
-        self.interceptor.container_root = os.path.normcase(os.path.abspath(container_root))
-        self.interceptor.resources_root = os.path.normcase(os.path.abspath(os.path.dirname(mathjax_dir())))
         ans = QWebEngineProfile(QApplication.instance())
+        setup_profile(ans)
+        self.url_handler = UrlSchemeHandler(container, parent=ans)
+        ans.installUrlSchemeHandler(QByteArray(FAKE_PROTOCOL.encode('ascii')), self.url_handler)
         ua = 'calibre-pdf-output ' + __version__
         ans.setHttpUserAgent(ua)
         s = ans.settings()
@@ -292,7 +378,7 @@ class RenderManager(QObject):
     def signal_received(self, read_fd):
         try:
             os.read(read_fd, 1024)
-        except EnvironmentError:
+        except OSError:
             return
         QApplication.instance().exit(KILL_SIGNAL)
 
@@ -307,7 +393,7 @@ class RenderManager(QObject):
     def run_loop(self):
         self.block_signal_handlers()
         try:
-            return QApplication.exec_()
+            return QApplication.exec()
         finally:
             self.restore_signal_handlers()
 
@@ -334,7 +420,7 @@ class RenderManager(QObject):
         w = self.workers[0]
         self.evaljs_result = None
         w.runJavaScript(js, self.evaljs_callback)
-        QApplication.exec_()
+        QApplication.exec()
         return self.evaljs_result
 
     def evaljs_callback(self, result):
@@ -377,7 +463,7 @@ def resolve_margins(margins, page_layout):
 
 
 def job_for_name(container, name, margins, page_layout):
-    index_file = container.name_to_abspath(name)
+    index_file = '/book/' + name
     if margins:
         page_layout = QPageLayout(page_layout)
         page_layout.setUnits(QPageLayout.Unit.Point)
@@ -453,8 +539,8 @@ def add_anchors_markup(root, uuid, anchors):
             # rescale the viewport
             a.tail = '\n'
         div.append(a)
-    a.count = 0
-    tuple(map(a, anchors))
+    for anchor in anchors:
+        a(anchor)
     a(uuid)
 
 
@@ -500,7 +586,7 @@ def make_anchors_unique(container, log):
         new_frag = mapping.get(key)
         if new_frag is None:
             if name in spine_names:
-                log.warn('Link anchor: {}#{} not found, linking to top of file instead'.format(name, frag))
+                log.warn(f'Link anchor: {name}#{frag} not found, linking to top of file instead')
                 replacer.replaced = True
                 return 'https://calibre-pdf-anchor.n#' + name
             return url.rstrip('#')
@@ -518,12 +604,12 @@ def make_anchors_unique(container, log):
             count += 1
             key = spine_name, elem.get('id')
             if key not in mapping:
-                new_id = mapping[key] = 'a{}'.format(count)
+                new_id = mapping[key] = f'a{count}'
                 elem.set('id', new_id)
         body = last_tag(root)
         if not body.get('id'):
             count += 1
-            body.set('id', 'a{}'.format(count))
+            body.set('id', f'a{count}')
         name_anchor_map[spine_name] = body.get('id')
 
     for name in container.mime_map:
@@ -533,7 +619,7 @@ def make_anchors_unique(container, log):
     return name_anchor_map
 
 
-class AnchorLocation(object):
+class AnchorLocation:
 
     __slots__ = ('pagenum', 'left', 'top', 'zoom')
 
@@ -556,7 +642,7 @@ def get_anchor_locations(name, pdf_doc, first_page_num, toc_uuid, log):
     except KeyError:
         toc_pagenum = None
     if toc_pagenum is None:
-        log.warn('Failed to find ToC anchor in {}'.format(name))
+        log.warn(f'Failed to find ToC anchor in {name}')
         toc_pagenum = 0
     if toc_pagenum > 1:
         pdf_doc.delete_pages(toc_pagenum, pdf_doc.page_count() - toc_pagenum + 1)
@@ -568,6 +654,7 @@ def get_anchor_locations(name, pdf_doc, first_page_num, toc_uuid, log):
 
 
 def fix_links(pdf_doc, anchor_locations, name_anchor_map, mark_links, log):
+    pc = pdf_doc.page_count()
 
     def replace_link(url):
         purl = urlparse(url)
@@ -577,19 +664,24 @@ def fix_links(pdf_doc, anchor_locations, name_anchor_map, mark_links, log):
         if purl.netloc == 'calibre-pdf-anchor.a':
             loc = anchor_locations.get(purl.fragment)
             if loc is None:
-                log.warn('Anchor location for link to {} not found'.format(purl.fragment))
+                log.warn(f'Anchor location for link to {purl.fragment} not found')
         else:
             loc = anchor_locations.get(name_anchor_map.get(purl.fragment))
             if loc is None:
-                log.warn('Anchor location for link to {} not found'.format(purl.fragment))
-        return None if loc is None else loc.as_tuple
+                log.warn(f'Anchor location for link to {purl.fragment} not found')
+        if loc is None:
+            return None
+        if loc.pagenum > pc:
+            log.warn(f'Anchor location for link to {purl.fragment} is past the end of the document, moving it to last page')
+            loc.pagenum = pc
+        return loc.as_tuple
 
     pdf_doc.alter_links(replace_link, mark_links)
 # }}}
 
 
 # Outline creation {{{
-class PDFOutlineRoot(object):
+class PDFOutlineRoot:
 
     def __init__(self, pdf_doc):
         self.pdf_doc = pdf_doc
@@ -612,17 +704,25 @@ def annotate_toc(toc, anchor_locations, name_anchor_map, log):
             else:
                 loc = anchor_locations[frag]
         except Exception:
-            log.warn('Could not find anchor location for ToC entry: {} with href: {}'.format(child.title, frag))
+            log.warn(f'Could not find anchor location for ToC entry: {child.title} with href: {frag}')
             loc = AnchorLocation(1, 0, 0, 0)
         child.pdf_loc = loc
 
 
-def add_toc(pdf_parent, toc_parent):
+def add_toc(pdf_parent, toc_parent, log, pdf_doc):
     for child in toc_parent:
         title, loc = child.title, child.pdf_loc
-        pdf_child = pdf_parent.create(title, loc.pagenum, True, loc.left, loc.top, loc.zoom)
+        try:
+            pdf_child = pdf_parent.create(title, loc.pagenum, True, loc.left, loc.top, loc.zoom)
+        except ValueError:
+            if loc.pagenum > 1:
+                log.warn(f'TOC node: {title} at page: {loc.pagenum} is beyond end of file, moving it to last page')
+                pdf_child = pdf_parent.create(title, pdf_doc.page_count(), True, loc.left, loc.top, loc.zoom)
+            else:
+                log.warn(f'Ignoring TOC node: {title} at page: {loc.pagenum}')
+                continue
         if len(child):
-            add_toc(pdf_child, child)
+            add_toc(pdf_child, child, log, pdf_doc)
 
 
 def get_page_number_display_map(render_manager, opts, num_pages, log):
@@ -635,14 +735,14 @@ def get_page_number_display_map(render_manager, opts, num_pages, log):
         for (var i=1; i <= NUM_PAGES; i++) ans[i] = map_num(i);
         JSON.stringify(ans);
         '''.replace('MAP_EXPRESSION', json.dumps(opts.pdf_page_number_map), 1).replace(
-                'NUM_PAGES', unicode_type(num_pages), 1)
+                'NUM_PAGES', str(num_pages), 1)
         result = render_manager.evaljs(js)
         try:
             result = json.loads(result)
             if not isinstance(result, dict):
                 raise ValueError('Not a dict')
         except Exception:
-            log.warn('Could not do page number mapping, got unexpected result: {}'.format(repr(result)))
+            log.warn(f'Could not do page number mapping, got unexpected result: {repr(result)}')
         else:
             default_map = {int(k): int(v) for k, v in iteritems(result)}
     return default_map
@@ -691,7 +791,7 @@ def add_pagenum_toc(root, toc, opts, page_number_display_map):
         E('td', text=node.title or _('Unknown'), parent=tr)
         num = node.pdf_loc.pagenum
         num = page_number_display_map.get(num, num)
-        E('td', text='{}'.format(num), parent=tr)
+        E('td', text=f'{num}', parent=tr)
 
 # }}}
 
@@ -823,7 +923,7 @@ def add_header_footer(manager, opts, pdf_doc, container, page_number_display_map
         if text is not None:
             ans.text = text
         if style is not None:
-            style = '; '.join('{}: {}'.format(k, v) for k, v in iteritems(style))
+            style = '; '.join(f'{k}: {v}' for k, v in iteritems(style))
             ans.set('style', style)
         return ans
 
@@ -909,8 +1009,8 @@ def add_header_footer(manager, opts, pdf_doc, container, page_number_display_map
             'flex-direction': 'column',
             'height': '100vh',
             'justify-content': justify,
-            'margin-left': '{}pt'.format(margins.left),
-            'margin-right': '{}pt'.format(margins.right),
+            'margin-left': f'{margins.left}pt',
+            'margin-right': f'{margins.right}pt',
             'margin-top': '0',
             'margin-bottom': '0',
             'padding': '0',
@@ -919,14 +1019,14 @@ def add_header_footer(manager, opts, pdf_doc, container, page_number_display_map
             'background-color': 'unset',
         }
 
-        ans = m('div', style=style, id='p{}'.format(page_num))
+        ans = m('div', style=style, id=f'p{page_num}')
         return ans
 
     def format_template(template, page_num, height):
-        template = template.replace('_TOP_LEVEL_SECTION_PAGES_', unicode_type(toplevel_pagenum_map[page_num - 1]))
-        template = template.replace('_TOP_LEVEL_SECTION_PAGENUM_', unicode_type(toplevel_pages_map[page_num - 1]))
-        template = template.replace('_TOTAL_PAGES_', unicode_type(pages_in_doc))
-        template = template.replace('_PAGENUM_', unicode_type(page_number_display_map[page_num]))
+        template = template.replace('_TOP_LEVEL_SECTION_PAGES_', str(toplevel_pagenum_map[page_num - 1]))
+        template = template.replace('_TOP_LEVEL_SECTION_PAGENUM_', str(toplevel_pages_map[page_num - 1]))
+        template = template.replace('_TOTAL_PAGES_', str(pages_in_doc))
+        template = template.replace('_PAGENUM_', str(page_number_display_map[page_num]))
         template = template.replace('_TITLE_', prepare_string_for_xml(pdf_metadata.title, True))
         template = template.replace('_AUTHOR_', prepare_string_for_xml(pdf_metadata.author, True))
         template = template.replace('_TOP_LEVEL_SECTION_', prepare_string_for_xml(toplevel_toc_map[page_num - 1]))
@@ -979,12 +1079,9 @@ def add_header_footer(manager, opts, pdf_doc, container, page_number_display_map
 
 # Maths {{{
 
+@lru_cache(maxsize=2)
 def mathjax_dir():
     return P('mathjax', allow_user_override=False)
-
-
-def path_to_url(path):
-    return QUrl.fromLocalFile(path).toString()
 
 
 def add_maths_script(container):
@@ -994,10 +1091,9 @@ def add_maths_script(container):
         has_maths[name] = hm = check_for_maths(root)
         if not hm:
             continue
-        script = root.makeelement(XHTML('script'), type="text/javascript", src=path_to_url(
-            P('pdf-mathjax-loader.js', allow_user_override=False)))
+        script = root.makeelement(XHTML('script'), type="text/javascript", src=f'{FAKE_PROTOCOL}://{FAKE_HOST}/mathjax/loader/pdf-mathjax-loader.js')
         script.set('async', 'async')
-        script.set('data-mathjax-path', path_to_url(mathjax_dir()))
+        script.set('data-mathjax-path', f'{FAKE_PROTOCOL}://{FAKE_HOST}/mathjax/data/')
         last_tag(root).append(script)
     return has_maths
 # }}}
@@ -1031,7 +1127,7 @@ def convert(opf_path, opts, metadata=None, output_path=None, log=default_log, co
     container.commit()
     report_progress(0.1, _('Completed markup transformation'))
 
-    manager = RenderManager(opts, log, container.root)
+    manager = RenderManager(opts, log, container)
     page_layout = get_page_layout(opts)
     pdf_doc = None
     anchor_locations = {}
@@ -1076,7 +1172,7 @@ def convert(opf_path, opts, metadata=None, output_path=None, log=default_log, co
 
     fix_links(pdf_doc, anchor_locations, name_anchor_map, opts.pdf_mark_links, log)
     if toc and len(toc):
-        add_toc(PDFOutlineRoot(pdf_doc), toc)
+        add_toc(PDFOutlineRoot(pdf_doc), toc, log, pdf_doc)
     report_progress(0.75, _('Added links to PDF content'))
 
     pdf_metadata = PDFMetadata(metadata)

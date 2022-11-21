@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -17,12 +16,12 @@ from qt.core import (
 )
 
 from calibre.gui2.tweak_book import tprefs
-from calibre.gui2.tweak_book.widgets import BusyCursor, Dialog
+from calibre.gui2.tweak_book.widgets import Dialog
+from calibre.gui2.widgets import BusyCursor
 from calibre.gui2.widgets2 import HistoryLineEdit2
 from calibre.utils.icu import safe_chr as codepoint_to_chr
 from calibre.utils.unicode_names import character_name_from_code, points_for_word
 from calibre_extensions.progress_indicator import set_no_activate_on_click
-from polyglot.builtins import map, range, unicode_type
 
 ROOT = QModelIndex()
 
@@ -372,7 +371,7 @@ class CategoryModel(QAbstractItemModel):
         self.starts.sort()
         self.bold_font = f = QApplication.font()
         f.setBold(True)
-        self.fav_icon = QIcon(I('rating.png'))
+        self.fav_icon = QIcon.ic('rating.png')
 
     def columnCount(self, parent=ROOT):
         return 1
@@ -519,7 +518,7 @@ class CharModel(QAbstractListModel):
         return ['application/calibre_charcode_indices']
 
     def mimeData(self, indexes):
-        data = ','.join(unicode_type(i.row()) for i in indexes)
+        data = ','.join(str(i.row()) for i in indexes)
         md = QMimeData()
         md.setData('application/calibre_charcode_indices', data.encode('utf-8'))
         return md
@@ -660,13 +659,13 @@ class CharView(QListView):
                 pass
             else:
                 m = QMenu(self)
-                m.addAction(QIcon(I('edit-copy.png')), _('Copy %s to clipboard') % codepoint_to_chr(char_code), partial(self.copy_to_clipboard, char_code))
-                m.addAction(QIcon(I('rating.png')),
+                m.addAction(QIcon.ic('edit-copy.png'), _('Copy %s to clipboard') % codepoint_to_chr(char_code), partial(self.copy_to_clipboard, char_code))
+                m.addAction(QIcon.ic('rating.png'),
                             (_('Remove %s from favorites') if self.showing_favorites else _('Add %s to favorites')) % codepoint_to_chr(char_code),
                             partial(self.remove_from_favorites, char_code))
                 if self.showing_favorites:
                     m.addAction(_('Restore favorites to defaults'), self.restore_defaults)
-                m.exec_(self.mapToGlobal(pos))
+                m.exec(self.mapToGlobal(pos))
 
     def restore_defaults(self):
         del tprefs['charmap_favorites']
@@ -696,7 +695,7 @@ class CharSelect(Dialog):
     def __init__(self, parent=None):
         self.initialized = False
         Dialog.__init__(self, _('Insert character'), 'charmap_dialog', parent)
-        self.setWindowIcon(QIcon(I('character-set.png')))
+        self.setWindowIcon(QIcon.ic('character-set.png'))
         self.setFocusProxy(parent)
 
     def setup_ui(self):
@@ -726,7 +725,7 @@ class CharSelect(Dialog):
         h.returnPressed.connect(self.do_search)
         b.clicked.connect(self.do_search)
         self.clear_button = cb = QToolButton(self)
-        cb.setIcon(QIcon(I('clear_left.png')))
+        cb.setIcon(QIcon.ic('clear_left.png'))
         cb.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         cb.setText(_('Clear search'))
         cb.clicked.connect(self.clear_search)
@@ -734,6 +733,7 @@ class CharSelect(Dialog):
 
         self.category_view = CategoryView(self)
         self.category_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.category_view.clicked.connect(self.category_view_clicked)
         l.addWidget(s, 1, 0, 1, 3)
         self.char_view = CharView(self)
         self.char_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -744,7 +744,7 @@ class CharSelect(Dialog):
         s.addWidget(self.category_view), s.addWidget(self.char_view)
 
         self.char_info = la = QLabel('\xa0')
-        la.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        la.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         l.addWidget(la, 2, 0, 1, 3)
 
         self.rearrange_msg = la = QLabel(_(
@@ -762,8 +762,13 @@ class CharSelect(Dialog):
         l.addLayout(h, 4, 0, 1, 3)
         self.char_view.setFocus(Qt.FocusReason.OtherFocusReason)
 
+    def category_view_clicked(self):
+        p = self.parent()
+        if p is not None and p.focusWidget() is not None:
+            p.activateWindow()
+
     def do_search(self):
-        text = unicode_type(self.search.text()).strip()
+        text = str(self.search.text()).strip()
         if not text:
             return self.clear_search()
         with BusyCursor():
@@ -795,11 +800,11 @@ class CharSelect(Dialog):
         return QSize(800, 600)
 
     def show_char_info(self, char_code):
+        text = '\xa0'
         if char_code > 0:
             category_name, subcategory_name, character_name = self.category_view.model().get_char_info(char_code)
-            self.char_info.setText('%s - %s - %s (U+%04X)' % (category_name, subcategory_name, character_name, char_code))
-        else:
-            self.char_info.clear()
+            text = _('{character_name} (U+{char_code:04X}) in {category_name} - {subcategory_name}').format(**locals())
+        self.char_info.setText(text)
 
     def show(self):
         self.initialize()
@@ -807,7 +812,7 @@ class CharSelect(Dialog):
         self.raise_()
 
     def char_selected(self, c):
-        if QApplication.keyboardModifiers() & Qt.Modifier.CTRL:
+        if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier:
             self.hide()
         if self.parent() is None or self.parent().focusWidget() is None:
             QApplication.clipboard().setText(c)
@@ -830,4 +835,4 @@ if __name__ == '__main__':
     w = CharSelect()
     w.initialize()
     w.show()
-    app.exec_()
+    app.exec()

@@ -1,11 +1,10 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2008, Kovid Goyal <kovid at kovidgoyal.net>
 
 
 from functools import partial
 
-from qt.core import (Qt, QDialog, QTableWidgetItem, QIcon, QByteArray, QSize, QAbstractItemView,
+from qt.core import (Qt, QDialog, QTableWidgetItem, QIcon, QSize, QAbstractItemView,
                       QDialogButtonBox, QItemDelegate, QApplication,
                       pyqtSignal, QAction, QFrame, QLabel, QTimer, QMenu, QColor)
 
@@ -18,7 +17,6 @@ from calibre.gui2 import question_dialog, error_dialog, gprefs
 from calibre.utils.config import prefs
 from calibre.utils.icu import contains, primary_contains, primary_startswith, capitalize
 from calibre.utils.titlecase import titlecase
-from polyglot.builtins import unicode_type
 
 QT_HIDDEN_CLEAR_ACTION = '_q_qlineeditclearaction'
 
@@ -45,9 +43,9 @@ class NameTableWidgetItem(QTableWidgetItem):
 
     def set_is_deleted(self, to_what):
         if to_what:
-            self.setIcon(QIcon(I('trash.png')))
+            self.setIcon(QIcon.ic('trash.png'))
         else:
-            self.setIcon(QIcon(None))
+            self.setIcon(QIcon())
             self.current_value = self.initial_value
         self.is_deleted = to_what
 
@@ -84,18 +82,18 @@ class NameTableWidgetItem(QTableWidgetItem):
             self.setText(self.text_before_placeholder)
 
     def __ge__(self, other):
-        return (self.sort_key(unicode_type(self.text())) >=
-                    self.sort_key(unicode_type(other.text())))
+        return (self.sort_key(str(self.text())) >=
+                    self.sort_key(str(other.text())))
 
     def __lt__(self, other):
-        return (self.sort_key(unicode_type(self.text())) <
-                    self.sort_key(unicode_type(other.text())))
+        return (self.sort_key(str(self.text())) <
+                    self.sort_key(str(other.text())))
 
 
 class CountTableWidgetItem(QTableWidgetItem):
 
     def __init__(self, count):
-        QTableWidgetItem.__init__(self, unicode_type(count))
+        QTableWidgetItem.__init__(self, str(count))
         self._count = count
 
     def __ge__(self, other):
@@ -242,15 +240,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
 
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.EditKeyPressed)
 
-        try:
-            geom = gprefs.get('tag_list_editor_dialog_geometry', None)
-            if geom is not None:
-                QApplication.instance().safe_restore_geometry(self, QByteArray(geom))
-            else:
-                self.resize(self.sizeHint()+QSize(150, 100))
-        except:
-            pass
-
+        self.restore_geometry(gprefs, 'tag_list_editor_dialog_geometry')
         self.is_enumerated = False
         if fm:
             if fm['datatype'] == 'enumeration':
@@ -263,6 +253,9 @@ class TagListEditor(QDialog, Ui_TagListEditor):
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_context_menu)
 
+    def sizeHint(self):
+        return super().sizeHint() + QSize(150, 100)
+
     def show_context_menu(self, point):
         idx = self.table.indexAt(point)
         if idx.column() != 0:
@@ -273,13 +266,16 @@ class TagListEditor(QDialog, Ui_TagListEditor):
         disable_copy_paste_search = len(self.table.selectedItems()) != 1 or item.is_deleted
         ca = m.addAction(_('Copy'))
         ca.triggered.connect(partial(self.copy_to_clipboard, item))
+        ca.setIcon(QIcon.ic('edit-copy.png'))
         if disable_copy_paste_search:
             ca.setEnabled(False)
         ca = m.addAction(_('Paste'))
+        ca.setIcon(QIcon.ic('edit-paste.png'))
         ca.triggered.connect(partial(self.paste_from_clipboard, item))
         if disable_copy_paste_search:
             ca.setEnabled(False)
         ca = m.addAction(_('Undo'))
+        ca.setIcon(QIcon.ic('edit-undo.png'))
         ca.triggered.connect(self.undo_edit)
         ca.setEnabled(False)
         for item in self.table.selectedItems():
@@ -287,23 +283,29 @@ class TagListEditor(QDialog, Ui_TagListEditor):
                 ca.setEnabled(True)
                 break
         ca = m.addAction(_('Edit'))
+        ca.setIcon(QIcon.ic('edit_input.png'))
         ca.triggered.connect(self.rename_tag)
         ca = m.addAction(_('Delete'))
+        ca.setIcon(QIcon.ic('trash.png'))
         ca.triggered.connect(self.delete_tags)
-        item_name = unicode_type(item.text())
+        item_name = str(item.text())
         ca = m.addAction(_('Search for {}').format(item_name))
+        ca.setIcon(QIcon.ic('search.png'))
         ca.triggered.connect(partial(self.set_search_text, item_name))
-        item_name = unicode_type(item.text())
+        item_name = str(item.text())
         ca = m.addAction(_('Filter by {}').format(item_name))
+        ca.setIcon(QIcon.ic('filter.png'))
         ca.triggered.connect(partial(self.set_filter_text, item_name))
         if self.category is not None:
             ca = m.addAction(_("Search the library for {0}").format(item_name))
+            ca.setIcon(QIcon.ic('lt.png'))
             ca.triggered.connect(partial(self.search_for_books, item))
             if disable_copy_paste_search:
                 ca.setEnabled(False)
         if self.table.state() == QAbstractItemView.State.EditingState:
             m.addSeparator()
             case_menu = QMenu(_('Change case'))
+            case_menu.setIcon(QIcon.ic('font_size_larger.png'))
             action_upper_case = case_menu.addAction(_('Upper case'))
             action_lower_case = case_menu.addAction(_('Lower case'))
             action_swap_case = case_menu.addAction(_('Swap case'))
@@ -315,12 +317,12 @@ class TagListEditor(QDialog, Ui_TagListEditor):
             action_title_case.triggered.connect(partial(self.do_case, titlecase))
             action_capitalize.triggered.connect(partial(self.do_case, capitalize))
             m.addMenu(case_menu)
-        m.exec_(self.table.mapToGlobal(point))
+        m.exec(self.table.mapToGlobal(point))
 
     def search_for_books(self, item):
         from calibre.gui2.ui import get_gui
-        get_gui().search.set_search_string('{0}:"={1}"'.format(self.category,
-                                   unicode_type(item.text()).replace(r'"', r'\"')))
+        get_gui().search.set_search_string('{}:"={}"'.format(self.category,
+                                   str(item.text()).replace(r'"', r'\"')))
 
         qv = get_quickview_action_plugin()
         if qv:
@@ -334,7 +336,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
 
     def copy_to_clipboard(self, item):
         cb = QApplication.clipboard()
-        cb.setText(unicode_type(item.text()))
+        cb.setText(str(item.text()))
 
     def paste_from_clipboard(self, item):
         cb = QApplication.clipboard()
@@ -350,7 +352,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
         # block signals to avoid the "edit one changes all" behavior
         self.table.blockSignals(True)
         for item in items:
-            item.setText(func(unicode_type(item.text())))
+            item.setText(func(str(item.text())))
         self.table.blockSignals(False)
 
     def swap_case(self, txt):
@@ -362,14 +364,14 @@ class TagListEditor(QDialog, Ui_TagListEditor):
 
     def do_search(self):
         self.not_found_label.setVisible(False)
-        find_text = unicode_type(self.search_box.currentText())
+        find_text = str(self.search_box.currentText())
         if not find_text:
             return
         for _ in range(0, self.table.rowCount()):
             r = self.search_item_row = (self.search_item_row + 1) % self.table.rowCount()
             if self.string_contains(find_text, self.table.item(r, 0).text()):
                 self.table.setCurrentItem(self.table.item(r, 0))
-                self.table.setFocus(True)
+                self.table.setFocus(Qt.FocusReason.OtherFocusReason)
                 return
         # Nothing found. Pop up the little dialog for 1.5 seconds
         self.not_found_label.setVisible(True)
@@ -389,7 +391,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
     def fill_in_table(self, tags, tag_to_match, ttm_is_first_letter):
         data = self.get_book_ids(self.apply_vl_checkbox.isChecked())
         self.all_tags = {}
-        filter_text = icu_lower(unicode_type(self.filter_box.text()))
+        filter_text = icu_lower(str(self.filter_box.text()))
         for k,v,count in data:
             if not filter_text or self.string_contains(filter_text, icu_lower(v)):
                 self.all_tags[v] = {'key': k, 'count': count, 'cur_name': v,
@@ -426,7 +428,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
                 item.setText(self.to_rename[_id])
             else:
                 item.setText(tag)
-            if self.is_enumerated and unicode_type(item.text()) not in self.enum_permitted_values:
+            if self.is_enumerated and str(item.text()) not in self.enum_permitted_values:
                 item.setBackground(QColor('#FF2400'))
                 item.setToolTip(
                     '<p>' +
@@ -452,15 +454,15 @@ class TagListEditor(QDialog, Ui_TagListEditor):
             self.table.setItem(row, 2, item)
 
         if self.last_sorted_by == 'name':
-            self.table.sortByColumn(0, self.name_order)
+            self.table.sortByColumn(0, Qt.SortOrder(self.name_order))
         elif self.last_sorted_by == 'count':
-            self.table.sortByColumn(1, self.count_order)
+            self.table.sortByColumn(1, Qt.SortOrder(self.count_order))
         else:
-            self.table.sortByColumn(2, self.was_order)
+            self.table.sortByColumn(2, Qt.SortOrder(self.was_order))
 
         if select_item is not None:
             self.table.setCurrentItem(select_item)
-            self.table.setFocus(True)
+            self.table.setFocus(Qt.FocusReason.OtherFocusReason)
             self.start_find_pos = select_item.row()
         else:
             self.table.setCurrentCell(0, 0)
@@ -503,7 +505,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
 
     def save_geometry(self):
         gprefs['tag_list_editor_table_widths'] = self.table_column_widths
-        gprefs['tag_list_editor_dialog_geometry'] = bytearray(self.saveGeometry())
+        super().save_geometry(gprefs, 'tag_list_editor_dialog_geometry')
 
     def start_editing(self, on_row):
         items = self.table.selectedItems()
@@ -531,7 +533,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
             edited_item.setText(self.text_before_editing)
             self.table.blockSignals(False)
             return
-        new_text = unicode_type(edited_item.text())
+        new_text = str(edited_item.text())
         if self.is_enumerated and new_text not in self.enum_permitted_values:
             error_dialog(self, _('Item is not a permitted value'), '<p>' + _(
                 "This column has a fixed set of permitted values. The entered "
@@ -556,7 +558,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
         indexes = self.table.selectionModel().selectedRows()
         if not indexes:
             error_dialog(self, _('No item selected'),
-                         _('You must select one item from the list of available items.')).exec_()
+                         _('You must select one item from the list of available items.')).exec()
             return
 
         if not confirm(
@@ -581,7 +583,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
     def _rename_tag(self, item):
         if item is None:
             error_dialog(self, _('No item selected'),
-                         _('You must select one item from the list of available items.')).exec_()
+                         _('You must select one item from the list of available items.')).exec()
             return
         for col_zero_item in self.table.selectedItems():
             if col_zero_item.is_deleted:
@@ -608,7 +610,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
         deletes = self.table.selectedItems()
         if not deletes:
             error_dialog(self, _('No items selected'),
-                         _('You must select at least one item from the list.')).exec_()
+                         _('You must select at least one item from the list.')).exec()
             return
 
         to_del = []
@@ -617,7 +619,7 @@ class TagListEditor(QDialog, Ui_TagListEditor):
                 to_del.append(item)
 
         if to_del:
-            ct = ', '.join([unicode_type(item.text()) for item in to_del])
+            ct = ', '.join([str(item.text()) for item in to_del])
             if not confirm(
                 '<p>'+_('Are you sure you want to delete the following items?')+'<br>'+ct,
                 'tag_list_editor_delete'):
@@ -643,17 +645,17 @@ class TagListEditor(QDialog, Ui_TagListEditor):
     def do_sort_by_name(self):
         self.name_order = 1 - self.name_order
         self.last_sorted_by = 'name'
-        self.table.sortByColumn(0, self.name_order)
+        self.table.sortByColumn(0, Qt.SortOrder(self.name_order))
 
     def do_sort_by_count(self):
         self.count_order = 1 - self.count_order
         self.last_sorted_by = 'count'
-        self.table.sortByColumn(1, self.count_order)
+        self.table.sortByColumn(1, Qt.SortOrder(self.count_order))
 
     def do_sort_by_was(self):
         self.was_order = 1 - self.was_order
         self.last_sorted_by = 'count'
-        self.table.sortByColumn(2, self.was_order)
+        self.table.sortByColumn(2, Qt.SortOrder(self.was_order))
 
     def accepted(self):
         self.save_geometry()

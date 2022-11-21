@@ -1,12 +1,11 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
 
 from struct import unpack, error
 import os
 from calibre.utils.speedups import ReadOnlyFileBuffer
-from polyglot.builtins import string_or_bytes, unicode_type
+from polyglot.builtins import string_or_bytes
 
 """ Recognize image file formats and sizes based on their first few bytes."""
 
@@ -40,14 +39,24 @@ def identify(src):
     ''' Recognize file format and sizes. Returns format, width, height. width
     and height will be -1 if not found and fmt will be None if the image is not
     recognized. '''
-    width = height = -1
+    needs_close = False
 
-    if isinstance(src, unicode_type):
+    if isinstance(src, str):
         stream = lopen(src, 'rb')
+        needs_close = True
     elif isinstance(src, bytes):
         stream = ReadOnlyFileBuffer(src)
     else:
         stream = src
+    try:
+        return _identify(stream)
+    finally:
+        if needs_close:
+            stream.close()
+
+
+def _identify(stream):
+    width = height = -1
 
     pos = stream.tell()
     head = stream.read(HSIZE)

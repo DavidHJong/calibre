@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -85,7 +84,7 @@ class CheckExternalLinks(Dialog):
         l.addLayout(h)
         self.bb.setStandardButtons(QDialogButtonBox.StandardButton.Close)
         self.rb = b = self.bb.addButton(_('&Refresh'), QDialogButtonBox.ButtonRole.ActionRole)
-        b.setIcon(QIcon(I('view-refresh.png')))
+        b.setIcon(QIcon.ic('view-refresh.png'))
         b.clicked.connect(self.refresh)
 
     def anchors_changed(self):
@@ -175,5 +174,5 @@ if __name__ == '__main__':
     set_current_container(get_container(sys.argv[-1]))
     d = CheckExternalLinks()
     d.refresh()
-    d.exec_()
+    d.exec()
     del app

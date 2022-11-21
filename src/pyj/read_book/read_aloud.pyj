@@ -46,6 +46,7 @@ class ReadAloud:
         ))
         container.addEventListener('keydown', self.on_keydown, {'passive': False})
         container.addEventListener('click', self.container_clicked, {'passive': False})
+        container.addEventListener('contextmenu', self.toggle, {'passive': False})
 
     @property
     def container(self):
@@ -197,8 +198,6 @@ class ReadAloud:
         if ev.key is 'Escape':
             self.hide()
             return
-        # Note that in the standalone viewer MediaPlayPause is currently broken
-        # in Qt: https://bugreports.qt.io/browse/QTBUG-89915
         if ev.key is ' ' or ev.key is 'MediaPlayPause' or ev.key is 'PlayPause':
             self.toggle()
             return

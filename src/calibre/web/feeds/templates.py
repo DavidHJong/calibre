@@ -13,13 +13,12 @@ from lxml.html.builder import HTML, HEAD, TITLE, STYLE, DIV, BODY, \
         TABLE, TD, TR
 
 from calibre import strftime, isbytestring
-from polyglot.builtins import unicode_type
 
 
 def attrs(*args, **kw):
     rescale = kw.pop('rescale', None)
     if rescale is not None:
-        kw['data-calibre-rescale'] = unicode_type(rescale)
+        kw['data-calibre-rescale'] = str(rescale)
     if args:
         kw['class'] = ' '.join(args)
     return kw
@@ -27,7 +26,7 @@ def attrs(*args, **kw):
 # Regular templates
 
 
-class Template(object):
+class Template:
 
     IS_HTML = True
 
@@ -79,7 +78,7 @@ class EmbeddedContent(Template):
         self.root = HTML(head,
                 BODY(H2(article.title), DIV()))
         div = self.root.find('body').find('div')
-        if elements and isinstance(elements[0], unicode_type):
+        if elements and isinstance(elements[0], str):
             div.text = elements[0]
             elements = list(elements)[1:]
         for elem in elements:
@@ -249,7 +248,7 @@ class TouchscreenIndexTemplate(Template):
 
     def _generate(self, title, masthead, datefmt, feeds, extra_css=None, style=None):
         self.IS_HTML = False
-        date = '%s, %s %s, %s' % (strftime('%A'), strftime('%B'), strftime('%d').lstrip('0'), strftime('%Y'))
+        date = '{}, {} {}, {}'.format(strftime('%A'), strftime('%B'), strftime('%d').lstrip('0'), strftime('%Y'))
         masthead_p = etree.Element("p")
         masthead_p.set("style","text-align:center")
         masthead_img = etree.Element("img")

@@ -1,22 +1,17 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
 __copyright__ = '2015, Kovid Goyal <kovid at kovidgoyal.net>'
 
-import subprocess, os, time
+import subprocess, os, time, shutil
 from collections import namedtuple
-try:
-    from distutils.spawn import find_executable
-except ImportError:  # windows
-    find_executable = lambda x: None
 
 from calibre.ptempfile import TemporaryDirectory
 from calibre.srv.errors import HTTPForbidden
 from calibre.srv.tests.base import BaseTest, TestServer
 from calibre.srv.routes import endpoint, Router
-from polyglot.builtins import iteritems, itervalues, map
+from polyglot.builtins import iteritems, itervalues
 from polyglot import http_client
 from polyglot.http_cookie import CookieJar
 from polyglot.urllib import (build_opener, HTTPBasicAuthHandler,
@@ -71,7 +66,7 @@ def digest(un, pw, nonce=None, uri=None, method='GET', nc=1, qop='auth', realm=R
     modify(da)
     pw = getattr(da, 'pw', pw)
 
-    class Data(object):
+    class Data:
 
         def __init__(self):
             self.method = method
@@ -109,7 +104,7 @@ class TestAuth(BaseTest):
             self.ae(b'closed', urlopen(server, un='!@#$%^&*()-=_+', pw='!@#$%^&*()-=_+', method='basic').read())
 
             def request(un='testuser', pw='testpw'):
-                conn.request('GET', '/closed', headers={'Authorization': b'Basic ' + as_base64_bytes('%s:%s' % (un, pw))})
+                conn.request('GET', '/closed', headers={'Authorization': b'Basic ' + as_base64_bytes(f'{un}:{pw}')})
                 r = conn.getresponse()
                 return r.status, r.read()
 
@@ -234,7 +229,7 @@ class TestAuth(BaseTest):
             self.ae(urlopen(server).read(), b'closed')
 
             # Check using curl
-            curl = find_executable('curl')
+            curl = shutil.which('curl')
             if curl:
                 def docurl(data, *args):
                     cmd = [curl] + list(args) + ['http://localhost:%d/closed' % server.address[1]]
@@ -256,7 +251,7 @@ class TestAuth(BaseTest):
             conn = server.connect()
 
             def request(un='testuser', pw='testpw'):
-                conn.request('GET', '/closed', headers={'Authorization': b'Basic ' + as_base64_bytes('%s:%s' % (un, pw))})
+                conn.request('GET', '/closed', headers={'Authorization': b'Basic ' + as_base64_bytes(f'{un}:{pw}')})
                 r = conn.getresponse()
                 return r.status, r.read()
 

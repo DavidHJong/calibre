@@ -1,9 +1,8 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
 
-import os, string, re, sys, errno
+import os, string, re, errno
 from collections import namedtuple, defaultdict
 from operator import itemgetter
 from ctypes import (
@@ -13,11 +12,9 @@ from ctypes import (
 )
 from ctypes.wintypes import DWORD, WORD, ULONG, LPCWSTR, HWND, BOOL, LPWSTR, UINT, BYTE, HANDLE, USHORT
 from pprint import pprint, pformat
-from polyglot.builtins import iteritems, itervalues, map, filter
+from polyglot.builtins import iteritems, itervalues
 
 from calibre import prints, as_unicode
-
-is64bit = sys.maxsize > (1 << 32)
 
 try:
     import winreg
@@ -49,7 +46,7 @@ class GUID(Structure):
         self.data4[7] = b8
 
     def __str__(self):
-        return "{%08x-%04x-%04x-%s-%s}" % (
+        return "{{{:08x}-{:04x}-{:04x}-{}-{}}}".format(
             self.data1,
             self.data2,
             self.data3,
@@ -113,7 +110,7 @@ class SP_DEVINFO_DATA(Structure):
     ]
 
     def __str__(self):
-        return "ClassGuid:%s DevInst:%s" % (self.ClassGuid, self.DevInst)
+        return f"ClassGuid:{self.ClassGuid} DevInst:{self.DevInst}"
 
 
 PSP_DEVINFO_DATA = POINTER(SP_DEVINFO_DATA)
@@ -128,7 +125,7 @@ class SP_DEVICE_INTERFACE_DATA(Structure):
     ]
 
     def __str__(self):
-        return "InterfaceClassGuid:%s Flags:%s" % (self.InterfaceClassGuid, self.Flags)
+        return f"InterfaceClassGuid:{self.InterfaceClassGuid} Flags:{self.Flags}"
 
 
 ANYSIZE_ARRAY = 1
@@ -443,7 +440,7 @@ def devid_pat():
     return _devid_pat
 
 
-class DeviceSet(object):
+class DeviceSet:
 
     def __init__(self, guid=GUID_DEVINTERFACE_VOLUME, enumerator=None, flags=DIGCF_PRESENT | DIGCF_DEVICEINTERFACE):
         self.guid_ref, self.enumerator, self.flags = (None if guid is None else byref(guid)), enumerator, flags
@@ -507,8 +504,7 @@ def iterchildren(parent_devinst):
 def iterdescendants(parent_devinst):
     for child in iterchildren(parent_devinst):
         yield child
-        for gc in iterdescendants(child):
-            yield gc
+        yield from iterdescendants(child)
 
 
 def iterancestors(devinst):
@@ -624,7 +620,7 @@ def get_device_interface_detail_data(dev_list, p_interface_data, buf=None):
     detail = cast(buf, PSP_DEVICE_INTERFACE_DETAIL_DATA)
     # See http://stackoverflow.com/questions/10728644/properly-declare-sp-device-interface-detail-data-for-pinvoke
     # for why cbSize needs to be hardcoded below
-    detail.contents.cbSize = 8 if is64bit else 6
+    detail.contents.cbSize = 8
     required_size = DWORD(0)
     devinfo = SP_DEVINFO_DATA()
     devinfo.cbSize = sizeof(devinfo)
@@ -634,7 +630,7 @@ def get_device_interface_detail_data(dev_list, p_interface_data, buf=None):
             if err == ERROR_INSUFFICIENT_BUFFER:
                 buf = create_string_buffer(required_size.value + 50)
                 detail = cast(buf, PSP_DEVICE_INTERFACE_DETAIL_DATA)
-                detail.contents.cbSize = 8 if is64bit else 6
+                detail.contents.cbSize = 8
                 continue
             raise WinError(err)
         break
@@ -698,7 +694,7 @@ class USBDevice(_USBDevice):
             if x is None:
                 return 'None'
             return '0x%x' % x
-        return 'USBDevice(vendor_id=%s product_id=%s bcd=%s devid=%s devinst=%s)' % (
+        return 'USBDevice(vendor_id={} product_id={} bcd={} devid={} devinst={})'.format(
             r(self.vendor_id), r(self.product_id), r(self.bcd), self.devid, self.devinst)
 
 
@@ -783,10 +779,10 @@ def get_drive_letters_for_device_single(usbdev, storage_number_map, debug=False)
                 storage_number = get_storage_number(devpath)
             except OSError as err:
                 if debug:
-                    prints('Failed to get storage number for: %s with error: %s' % (devid, as_unicode(err)))
+                    prints(f'Failed to get storage number for: {devid} with error: {as_unicode(err)}')
                 continue
             if debug:
-                prints('Storage number for %s: %s' % (devid, storage_number))
+                prints(f'Storage number for {devid}: {storage_number}')
             if storage_number:
                 partitions = storage_number_map.get(storage_number[:2])
                 drive_letters = []
@@ -804,7 +800,7 @@ def get_drive_letters_for_device_single(usbdev, storage_number_map, debug=False)
                 ans['readonly_drives'].add(dl)
         except OSError as err:
             if debug:
-                prints('Failed to get readonly status for drive: %s with error: %s' % (dl, as_unicode(err)))
+                prints(f'Failed to get readonly status for drive: {dl} with error: {as_unicode(err)}')
 
     return ans
 
@@ -821,7 +817,7 @@ def get_storage_number_map(drive_types=(DRIVE_REMOVABLE, DRIVE_FIXED), debug=Fal
             ans[sn[:2]].append((sn[2], letter))
         except OSError as err:
             if debug:
-                prints('Failed to get storage number for drive: %s with error: %s' % (letter, as_unicode(err)))
+                prints(f'Failed to get storage number for drive: {letter} with error: {as_unicode(err)}')
             continue
     for val in itervalues(ans):
         val.sort(key=itemgetter(0))
@@ -839,14 +835,14 @@ def get_storage_number_map_alt(debug=False):
             GetVolumeNameForVolumeMountPoint(devpath, wbuf, len(wbuf))
         except OSError as err:
             if debug:
-                prints('Failed to get volume id for drive: %s with error: %s' % (devpath, as_unicode(err)))
+                prints(f'Failed to get volume id for drive: {devpath} with error: {as_unicode(err)}')
             continue
         vname = wbuf.value
         try:
             wbuf, names = get_volume_pathnames(vname, buf=wbuf)
         except OSError as err:
             if debug:
-                prints('Failed to get mountpoints for volume %s with error: %s' % (devpath, as_unicode(err)))
+                prints(f'Failed to get mountpoints for volume {devpath} with error: {as_unicode(err)}')
             continue
         for name in names:
             name = name.upper()
@@ -854,14 +850,14 @@ def get_storage_number_map_alt(debug=False):
                 break
         else:
             if debug:
-                prints('Ignoring volume %s as it has no assigned drive letter. Mountpoints: %s' % (devpath, names))
+                prints(f'Ignoring volume {devpath} as it has no assigned drive letter. Mountpoints: {names}')
             continue
         try:
             sn = get_storage_number('\\\\.\\' + name[0] + ':')
             ans[sn[:2]].append((sn[2], name[0]))
         except OSError as err:
             if debug:
-                prints('Failed to get storage number for drive: %s with error: %s' % (name[0], as_unicode(err)))
+                prints(f'Failed to get storage number for drive: {name[0]} with error: {as_unicode(err)}')
             continue
     for val in itervalues(ans):
         val.sort(key=itemgetter(0))
@@ -1008,7 +1004,7 @@ def develop():  # {{{
         connected, usbdev = dev.is_usb_connected(usb_devices, debug=True)
         if connected:
             print('\n')
-            print('Potentially connected device: %s at %s' % (dev.get_gui_name(), usbdev))
+            print(f'Potentially connected device: {dev.get_gui_name()} at {usbdev}')
             print()
             print('Drives for this device:')
             data = get_drive_letters_for_device(usbdev, debug=True)
@@ -1025,7 +1021,7 @@ def drives_for(vendor_id, product_id=None):
     pprint(usb_devices)
     for usbdev in usb_devices:
         if usbdev.vendor_id == vendor_id and (product_id is None or usbdev.product_id == product_id):
-            print('Drives for: {}'.format(usbdev))
+            print(f'Drives for: {usbdev}')
             pprint(get_drive_letters_for_device(usbdev, debug=True))
             print('USB info:', get_usb_info(usbdev, debug=True))
 

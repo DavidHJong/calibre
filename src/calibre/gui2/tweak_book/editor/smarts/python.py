@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -36,8 +35,10 @@ class Smarts(NullSmarts):
     def handle_key_press(self, ev, editor):
         key = ev.key()
 
-        if key == Qt.Key.Key_Tab and smart_tab(editor, ev):
-            return True
+        if key == Qt.Key.Key_Tab:
+            mods = ev.modifiers()
+            if not mods & Qt.KeyboardModifier.ControlModifier and smart_tab(editor, ev):
+                return True
 
         elif key == Qt.Key.Key_Backspace and smart_backspace(editor, ev):
             return True

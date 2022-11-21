@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -7,11 +6,12 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import os
 from functools import partial
+from gettext import pgettext
 from itertools import product
 from qt.core import (
-    QAction, QApplication, QColor, QDockWidget, QEvent, QHBoxLayout, QIcon, QImage,
-    QLabel, QMenu, QPalette, QPixmap, QSize, QStackedWidget, Qt, QTabWidget, QTimer,
-    QUrl, QVBoxLayout, QWidget, pyqtSignal
+    QAction, QApplication, QColor, QDockWidget, QEvent, QHBoxLayout, QIcon, QLabel,
+    QMenu, QMenuBar, QPalette, QSize, QStackedWidget, Qt, QTabWidget, QTimer, QUrl,
+    QVBoxLayout, QWidget, pyqtSignal
 )
 
 from calibre import prepare_string_for_xml, prints
@@ -21,7 +21,6 @@ from calibre.constants import (
 )
 from calibre.customize.ui import find_plugin
 from calibre.gui2 import elided_text, open_url
-from calibre.gui2.dbus_export.widgets import factory
 from calibre.gui2.keyboard import Manager as KeyboardManager
 from calibre.gui2.main_window import MainWindow
 from calibre.gui2.throbber import ThrobbingButton
@@ -53,7 +52,7 @@ from calibre.utils.localization import (
     localize_user_manual_link, localize_website_link
 )
 from calibre.utils.unicode_names import character_name_from_code
-from polyglot.builtins import iteritems, itervalues, map, range, unicode_type
+from polyglot.builtins import iteritems, itervalues
 
 
 def open_donate():
@@ -86,13 +85,7 @@ class Central(QStackedWidget):  # {{{
         t.setDocumentMode(True)
         t.setTabsClosable(True)
         t.setMovable(True)
-        pal = self.palette()
-        if pal.color(QPalette.ColorRole.WindowText).lightness() > 128:
-            i = QImage(I('modified.png'))
-            i.invertPixels()
-            self.modified_icon = QIcon(QPixmap.fromImage(i))
-        else:
-            self.modified_icon = QIcon(I('modified.png'))
+        self.modified_icon = QIcon.ic('modified.png')
         self.editor_tabs.currentChanged.connect(self.current_editor_changed)
         self.editor_tabs.tabCloseRequested.connect(self._close_requested)
         self.search_panel = SearchPanel(self)
@@ -204,14 +197,14 @@ class Central(QStackedWidget):  # {{{
         self.search_panel.pre_fill(text)
 
     def eventFilter(self, obj, event):
-        base = super(Central, self)
+        base = super()
         if obj is not self.editor_tabs.tabBar() or event.type() != QEvent.Type.MouseButtonPress or event.button() not in (
-                Qt.MouseButton.RightButton, Qt.MouseButton.MidButton):
+                Qt.MouseButton.RightButton, Qt.MouseButton.MiddleButton):
             return base.eventFilter(obj, event)
         index = self.editor_tabs.tabBar().tabAt(event.pos())
         if index < 0:
             return base.eventFilter(obj, event)
-        if event.button() == Qt.MouseButton.MidButton:
+        if event.button() == Qt.MouseButton.MiddleButton:
             self._close_requested(index)
         ed = self.editor_tabs.widget(index)
         if ed is not None:
@@ -220,7 +213,7 @@ class Central(QStackedWidget):  # {{{
             menu.addSeparator()
             menu.addAction(actions['close-all-but-current-tab'].icon(), _('Close other tabs'), partial(self.close_all_but, ed))
             menu.addAction(actions['close-tabs-to-right-of'].icon(), _('Close tabs to the right of this tab'), partial(self.close_to_right, ed))
-            menu.exec_(self.editor_tabs.tabBar().mapToGlobal(event.pos()))
+            menu.exec(self.editor_tabs.tabBar().mapToGlobal(event.pos()))
 
         return True
 # }}}
@@ -338,7 +331,7 @@ class Main(MainWindow):
             traceback.print_exc()
         self.setWindowTitle(self.APP_NAME)
         self.boss = Boss(self, notify=notify)
-        self.setWindowIcon(QIcon(I('tweak.png')))
+        self.setWindowIcon(QIcon.ic('tweak.png'))
         self.opts = opts
         self.path_to_ebook = None
         self.container = None
@@ -370,24 +363,24 @@ class Main(MainWindow):
         self.cursor_position_widget = CursorPositionWidget(self)
         self.status_bar.addPermanentWidget(self.cursor_position_widget)
         self.status_bar_default_msg = la = QLabel(' ' + _('{0} {1} created by {2}').format(__appname__, get_version(), 'Kovid Goyal'))
-        la.base_template = unicode_type(la.text())
+        la.base_template = str(la.text())
         self.status_bar.addWidget(la)
 
         self.boss(self)
-        g = QApplication.instance().desktop().availableGeometry(self)
+        g = self.screen().availableSize()
         self.resize(g.width()-50, g.height()-50)
 
-        self.restore_state()
         self.apply_settings()
+        QTimer.singleShot(0, self.restore_state)
 
     def apply_settings(self):
         self.keyboard.finalize()
         self.setDockNestingEnabled(tprefs['nestable_dock_widgets'])
         for v, h in product(('top', 'bottom'), ('left', 'right')):
-            p = 'dock_%s_%s' % (v, h)
+            p = f'dock_{v}_{h}'
             pref = tprefs[p] or tprefs.defaults[p]
-            area = getattr(Qt, '%sDockWidgetArea' % capitalize({'vertical':h, 'horizontal':v}[pref]))
-            self.setCorner(getattr(Qt, '%s%sCorner' % tuple(map(capitalize, (v, h)))), area)
+            area = getattr(Qt.DockWidgetArea, '%sDockWidgetArea' % capitalize({'vertical':h, 'horizontal':v}[pref]))
+            self.setCorner(getattr(Qt.Corner, '%s%sCorner' % tuple(map(capitalize, (v, h)))), area)
         self.preview.apply_settings()
         self.live_css.apply_theme()
         for bar in (self.global_bar, self.tools_bar, self.plugins_bar):
@@ -408,17 +401,17 @@ class Main(MainWindow):
 
         def reg(icon, text, target, sid, keys, description, toolbar_allowed=False):
             if not isinstance(icon, QIcon):
-                icon = QIcon(I(icon))
+                icon = QIcon.ic(icon)
             ac = actions[sid] = QAction(icon, text, self) if icon else QAction(text, self)
             ac.setObjectName('action-' + sid)
             if toolbar_allowed:
                 toolbar_actions[sid] = ac
             if target is not None:
                 ac.triggered.connect(target)
-            if isinstance(keys, unicode_type):
+            if isinstance(keys, str):
                 keys = (keys,)
             self.keyboard.register_shortcut(
-                sid, unicode_type(ac.text()).replace('&', ''), default_keys=keys, description=description, action=ac, group=group)
+                sid, str(ac.text()).replace('&', ''), default_keys=keys, description=description, action=ac, group=group)
             self.addAction(ac)
             return ac
 
@@ -500,6 +493,8 @@ class Main(MainWindow):
             'Compress images losslessly'))
         self.action_transform_styles = treg('wizard.png', _('Transform &styles'), self.boss.transform_styles, 'transform-styles', (), _(
             'Transform styles used in the book'))
+        self.action_transform_html = treg('wizard.png', _('Transform &HTML'), self.boss.transform_html, 'transform-html', (), _(
+            'Transform HTML used in the book'))
         self.action_get_ext_resources = treg('download-metadata.png', _('Download external &resources'),
                                              self.boss.get_external_resources, 'get-external-resources', (), _(
             'Download external resources in the book (images/stylesheets/etc/ that are not included in the book)'))
@@ -580,7 +575,7 @@ class Main(MainWindow):
             self.boss.next_spell_error, 'spell-next', ('F8'), _('Go to next spelling mistake'))
 
         # Miscellaneous actions
-        group = _('Miscellaneous')
+        group = pgettext('edit book actions', 'Miscellaneous')
         self.action_create_checkpoint = treg(
             'marked.png', _('&Create checkpoint'), self.boss.create_checkpoint, 'create-checkpoint', (), _(
                 'Create a checkpoint with the current state of the book'))
@@ -618,8 +613,9 @@ class Main(MainWindow):
             p, q = self.create_application_menubar()
             q.triggered.connect(self.action_quit.trigger)
             p.triggered.connect(self.action_preferences.trigger)
-        f = factory(app_id='com.calibre-ebook.EditBook-%d' % os.getpid())
-        b = f.create_window_menubar(self)
+        b = QMenuBar(self)
+        self.setMenuBar(b)
+        b.is_native_menubar = False
 
         f = b.addMenu(_('&File'))
         f.addAction(self.action_new_file)
@@ -665,6 +661,7 @@ class Main(MainWindow):
         e.addAction(self.action_smarten_punctuation)
         e.addAction(self.action_remove_unused_css)
         e.addAction(self.action_transform_styles)
+        e.addAction(self.action_transform_html)
         e.addAction(self.action_fix_html_all)
         e.addAction(self.action_pretty_all)
         e.addAction(self.action_rationalize_folders)
@@ -718,13 +715,13 @@ class Main(MainWindow):
 
         if self.plugin_menu_actions:
             e = b.addMenu(_('&Plugins'))
-            for ac in sorted(self.plugin_menu_actions, key=lambda x:sort_key(unicode_type(x.text()))):
+            for ac in sorted(self.plugin_menu_actions, key=lambda x:sort_key(str(x.text()))):
                 e.addAction(ac)
 
         e = b.addMenu(_('&Help'))
         a = e.addAction
         a(self.action_help)
-        a(QIcon(I('donate.png')), _('&Donate to support calibre development'), open_donate)
+        a(QIcon.ic('donate.png'), _('&Donate to support calibre development'), open_donate)
         a(self.action_preferences)
 
     def search_menu_about_to_show(self):
@@ -770,7 +767,7 @@ class Main(MainWindow):
                     bar.addAction(actions[ac])
                 except KeyError:
                     if DEBUG:
-                        prints('Unknown action for toolbar %r: %r' % (unicode_type(bar.objectName()), ac))
+                        prints(f'Unknown action for toolbar {str(bar.objectName())!r}: {ac!r}')
 
         for x in tprefs['global_book_toolbar']:
             add(self.global_bar, x)
@@ -870,7 +867,7 @@ class Main(MainWindow):
 
     def resizeEvent(self, ev):
         self.blocking_job.resize(ev.size())
-        return super(Main, self).resizeEvent(ev)
+        return super().resizeEvent(ev)
 
     def update_window_title(self):
         cc = current_container()
@@ -887,7 +884,7 @@ class Main(MainWindow):
             e.ignore()
 
     def save_state(self):
-        tprefs.set('main_window_geometry', bytearray(self.saveGeometry()))
+        self.save_geometry(tprefs, 'main_window_geometry')
         tprefs.set('main_window_state', bytearray(self.saveState(self.STATE_VERSION)))
         self.central.save_state()
         self.saved_searches.save_state()
@@ -895,9 +892,7 @@ class Main(MainWindow):
         self.text_search.save_state()
 
     def restore_state(self):
-        geom = tprefs.get('main_window_geometry', None)
-        if geom is not None:
-            QApplication.instance().safe_restore_geometry(self, geom)
+        self.restore_geometry(tprefs, 'main_window_geometry')
         state = tprefs.get('main_window_state', None)
         if state is not None:
             self.restoreState(state, self.STATE_VERSION)

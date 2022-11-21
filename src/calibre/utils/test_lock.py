@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -18,7 +17,7 @@ from calibre.utils.tdir_in_cache import (
     clean_tdirs_in, is_tdir_locked, retry_lock_tdir, tdir_in_cache, tdirs_in,
     unlock_file
 )
-from polyglot.builtins import iteritems, getcwd, native_string_type
+from polyglot.builtins import iteritems, native_string_type
 
 
 def FastFailEF(name):
@@ -33,7 +32,7 @@ class Other(Thread):
         try:
             with FastFailEF('testsp'):
                 self.locked = True
-        except EnvironmentError:
+        except OSError:
             self.locked = False
 
 
@@ -72,7 +71,7 @@ class IPCLockTest(unittest.TestCase):
             try:
                 shutil.rmtree(self.tdir)
                 break
-            except EnvironmentError:
+            except OSError:
                 time.sleep(0.1)
 
     def test_exclusive_file_same_process(self):
@@ -130,6 +129,7 @@ class IPCLockTest(unittest.TestCase):
         while not os.path.exists('ready'):
             time.sleep(0.01)
         child.kill()
+        child.wait()
         release_mutex = create_single_instance_mutex('test')
         self.assertIsNotNone(release_mutex)
         release_mutex()
@@ -153,7 +153,7 @@ class IPCLockTest(unittest.TestCase):
         self.assertFalse(is_tdir_locked(tdirs[0]))
         clean_tdirs_in('t')
         self.assertFalse(os.path.exists(tdirs[0]))
-        self.assertEqual(os.listdir('t'), [u'tdir-lock'])
+        self.assertEqual(os.listdir('t'), ['tdir-lock'])
 
 
 def other1():
@@ -166,23 +166,32 @@ def other1():
 
 def other2():
     release_mutex = create_single_instance_mutex('test')
-    raise SystemExit(0 if release_mutex is None else 1)
+    if release_mutex is None:
+        ret = 0
+    else:
+        ret = 1
+        release_mutex()
+    raise SystemExit(ret)
 
 
 def other3():
-    create_single_instance_mutex('test')
-    os.mkdir('ready')
-    time.sleep(30)
+    release_mutex = create_single_instance_mutex('test')
+    try:
+        os.mkdir('ready')
+        time.sleep(30)
+    finally:
+        if release_mutex is not None:
+            release_mutex()
 
 
 def other4():
-    cache_dir.ans = getcwd()
+    cache_dir.ans = os.getcwd()
     tdir_in_cache('t')
     time.sleep(30)
 
 
 def other5():
-    cache_dir.ans = getcwd()
+    cache_dir.ans = os.getcwd()
     if not os.path.isdir(tdir_in_cache('t')):
         raise SystemExit(1)
 

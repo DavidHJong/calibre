@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -152,7 +151,7 @@ class Exit:
         raise SystemExit(0)
 
 
-class Helper(object):
+class Helper:
 
     def __repr__(self):
         return "Type help() for interactive help, " \
@@ -187,11 +186,14 @@ def simple_repl(user_ns={}):
 
 def ipython(user_ns=None):
     os.environ['IPYTHONDIR'] = ipydir
+    have_ipython = True
     try:
         from IPython.terminal.embed import InteractiveShellEmbed
         from traitlets.config.loader import Config
         from IPython.terminal.prompts import Prompts, Token
     except ImportError:
+        have_ipython = False
+    if not have_ipython:
         return simple_repl(user_ns=user_ns)
 
     class CustomPrompt(Prompts):

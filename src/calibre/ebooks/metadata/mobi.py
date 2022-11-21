@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2009, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -15,7 +14,7 @@ from calibre.ebooks.mobi.utils import rescale_image
 from calibre.utils.date import now as nowf
 from calibre.utils.imghdr import what
 from calibre.utils.localization import canonicalize_lang, lang_as_iso639_1
-from polyglot.builtins import codepoint_to_chr, range, unicode_type
+from polyglot.builtins import codepoint_to_chr
 
 
 '''
@@ -29,7 +28,7 @@ def is_image(ss):
     return what(None, ss[:200]) is not None
 
 
-class StreamSlicer(object):
+class StreamSlicer:
 
     def __init__(self, stream, start=0, stop=None):
         self._stream = stream
@@ -97,7 +96,7 @@ class StreamSlicer(object):
         self._stream.truncate(value)
 
 
-class MetadataUpdater(object):
+class MetadataUpdater:
     DRM_KEY_SIZE = 48
 
     def __init__(self, stream):
@@ -223,7 +222,7 @@ class MetadataUpdater(object):
 
     def create_exth(self, new_title=None, exth=None):
         # Add an EXTH block to record 0, rewrite the stream
-        if isinstance(new_title, unicode_type):
+        if isinstance(new_title, str):
             new_title = new_title.encode(self.codec, 'replace')
 
         # Fetch the existing title
@@ -313,7 +312,7 @@ class MetadataUpdater(object):
         print("%10s %10s %10s" % ("offset","flags","val"))
         for i in range(len(self.pdbrecords)):
             pdbrecord = self.pdbrecords[i]
-            print("%10X %10X %10X" % (pdbrecord[0], pdbrecord[1], pdbrecord[2]))
+            print(f"{pdbrecord[0]:10X} {pdbrecord[1]:10X} {pdbrecord[2]:10X}")
 
     def record(self, n):
         if n >= self.nrecs:
@@ -381,9 +380,9 @@ class MetadataUpdater(object):
                 update_exth_record((501, b'PDOC'))
 
         if mi.pubdate:
-            update_exth_record((106, unicode_type(mi.pubdate).encode(self.codec, 'replace')))
+            update_exth_record((106, str(mi.pubdate).encode(self.codec, 'replace')))
         elif mi.timestamp:
-            update_exth_record((106, unicode_type(mi.timestamp).encode(self.codec, 'replace')))
+            update_exth_record((106, str(mi.timestamp).encode(self.codec, 'replace')))
         elif self.timestamp:
             update_exth_record((106, self.timestamp))
         else:
@@ -395,13 +394,14 @@ class MetadataUpdater(object):
             update_exth_record((202, pack('>I', self.thumbnail_rindex)))
         # Add a 113 record if not present to allow Amazon syncing
         if (113 not in self.original_exth_records and
-                self.original_exth_records.get(501, None) == 'EBOK' and
+                self.original_exth_records.get(501, None) == b'EBOK' and
                 not added_501 and not share_not_sync):
             from uuid import uuid4
-            update_exth_record((113, unicode_type(uuid4()).encode(self.codec)))
+            update_exth_record((113, str(uuid4()).encode(self.codec)))
 
         if asin is not None:
             update_exth_record((113, asin.encode(self.codec)))
+            update_exth_record((501, b'EBOK'))
             update_exth_record((504, asin.encode(self.codec)))
 
         # Add a 112 record with actual UUID

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -11,7 +10,7 @@ from calibre.constants import config_dir, iswindows, filesystem_encoding
 from calibre.utils.config_base import prefs, StringConfig, create_global_prefs
 from calibre.utils.config import JSONConfig
 from calibre.utils.filenames import samefile
-from polyglot.builtins import iteritems, raw_input, error_message, unicode_type
+from polyglot.builtins import iteritems, error_message
 from polyglot.binary import as_hex_unicode
 
 
@@ -25,10 +24,10 @@ def send_file(from_obj, to_obj, chunksize=1<<20):
             break
         m.update(raw)
         to_obj.write(raw)
-    return unicode_type(m.hexdigest())
+    return str(m.hexdigest())
 
 
-class FileDest(object):
+class FileDest:
 
     def __init__(self, key, exporter, mtime=None):
         self.exporter, self.key = exporter, key
@@ -55,7 +54,7 @@ class FileDest(object):
     def close(self):
         if not self._discard:
             size = self.exporter.f.tell() - self.start_pos
-            digest = unicode_type(self.hasher.hexdigest())
+            digest = str(self.hasher.hexdigest())
             self.exporter.file_metadata[self.key] = (len(self.exporter.parts), self.start_pos, size, digest, self.mtime)
         del self.exporter, self.hasher
 
@@ -66,7 +65,7 @@ class FileDest(object):
         self.close()
 
 
-class Exporter(object):
+class Exporter:
 
     VERSION = 0
     TAIL_FMT = b'!II?'  # part_num, version, is_last
@@ -92,7 +91,7 @@ class Exporter(object):
 
     def new_part(self):
         self.parts.append(open(os.path.join(
-            self.base, 'part-{:04d}{}'.format(len(self.parts) + 1, self.EXT)), 'wb'))
+            self.base, f'part-{len(self.parts) + 1:04d}{self.EXT}'), 'wb'))
 
     def commit_part(self, is_last=False):
         self.f.write(struct.pack(self.TAIL_FMT, len(self.parts), self.VERSION, is_last))
@@ -104,7 +103,7 @@ class Exporter(object):
             if size + self.f.tell() < self.part_size:
                 return
         except AttributeError:
-            raise RuntimeError('This exporter has already been commited, cannot add to it')
+            raise RuntimeError('This exporter has already been committed, cannot add to it')
         self.commit_part()
         self.new_part()
 
@@ -138,11 +137,11 @@ class Exporter(object):
             for fname in filenames:
                 fpath = os.path.join(dirpath, fname)
                 rpath = os.path.relpath(fpath, path).replace(os.sep, '/')
-                key = '%s:%s' % (pkey, rpath)
+                key = f'{pkey}:{rpath}'
                 try:
                     with lopen(fpath, 'rb') as f:
                         self.add_file(f, key)
-                except EnvironmentError:
+                except OSError:
                     if not iswindows:
                         raise
                     time.sleep(1)
@@ -209,7 +208,7 @@ def export(destdir, library_paths=None, dbmap=None, progress1=None, progress2=No
 # Import {{{
 
 
-class FileSource(object):
+class FileSource:
 
     def __init__(self, f, size, digest, description, mtime, importer):
         self.f, self.size, self.digest, self.description = f, size, digest, description
@@ -235,7 +234,7 @@ class FileSource(object):
         self.hasher = self.f = None
 
 
-class Importer(object):
+class Importer:
 
     def __init__(self, path_to_export_dir):
         self.corrupted_files = []
@@ -290,7 +289,7 @@ class Importer(object):
             try:
                 with lopen(path, 'wb') as dest:
                     shutil.copyfileobj(f, dest)
-            except EnvironmentError:
+            except OSError:
                 os.makedirs(os.path.dirname(path))
                 with lopen(path, 'wb') as dest:
                     shutil.copyfileobj(f, dest)
@@ -299,14 +298,14 @@ class Importer(object):
         try:
             with lopen(gpath, 'rb') as f:
                 raw = f.read()
-        except EnvironmentError:
+        except OSError:
             raw = b''
         try:
             lpath = library_usage_stats.most_common(1)[0][0]
         except Exception:
             lpath = None
         c = create_global_prefs(StringConfig(raw, 'calibre wide preferences'))
-        c.set('installation_uuid', unicode_type(uuid.uuid4()))
+        c.set('installation_uuid', str(uuid.uuid4()))
         c.set('library_path', lpath)
         raw = c.src
         if not isinstance(raw, bytes):
@@ -332,7 +331,7 @@ def import_data(importer, library_path_map, config_location=None, progress1=None
             progress1(dest, i, total)
         try:
             os.makedirs(dest)
-        except EnvironmentError as err:
+        except OSError as err:
             if err.errno != errno.EEXIST:
                 raise
         if not os.path.isdir(dest):
@@ -355,14 +354,14 @@ def import_data(importer, library_path_map, config_location=None, progress1=None
             if os.path.exists(config_location):
                 try:
                     shutil.rmtree(config_location)
-                except EnvironmentError:
+                except OSError:
                     if not iswindows:
                         raise
                     time.sleep(1)
                     shutil.rmtree(config_location)
     try:
         os.rename(base_dir, config_location)
-    except EnvironmentError:
+    except OSError:
         time.sleep(2)
         os.rename(base_dir, config_location)
     from calibre.gui2 import gprefs
@@ -384,18 +383,18 @@ def test_import(export_dir='/t/ex', import_dir='/t/imp'):
 def cli_report(*args, **kw):
     try:
         prints(*args, **kw)
-    except EnvironmentError:
+    except OSError:
         pass
 
 
 def input_unicode(prompt):
-    ans = raw_input(prompt)
+    ans = input(prompt)
     if isinstance(ans, bytes):
         ans = ans.decode(sys.stdin.encoding)
     return ans
 
 
-def run_exporter(export_dir=None, args=None):
+def run_exporter(export_dir=None, args=None, check_known_libraries=True):
     if args:
         if len(args) < 2:
             raise SystemExit('You must specify the export folder and libraries to export')
@@ -409,8 +408,8 @@ def run_exporter(export_dir=None, args=None):
             libraries = set(all_libraries)
         else:
             libraries = {os.path.normcase(os.path.abspath(os.path.expanduser(path))) for path in args[1:]}
-        if libraries - set(all_libraries):
-            raise SystemExit('Unknown library: ' + tuple(libraries - all_libraries)[0])
+        if check_known_libraries and libraries - set(all_libraries):
+            raise SystemExit('Unknown library: ' + tuple(libraries - set(all_libraries))[0])
         libraries = {p: all_libraries[p] for p in libraries}
         print('Exporting libraries:', ', '.join(sorted(libraries)), 'to:', export_dir)
         export(export_dir, progress1=cli_report, progress2=cli_report, library_paths=libraries)

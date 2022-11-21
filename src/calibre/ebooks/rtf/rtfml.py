@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -19,7 +16,7 @@ from lxml import etree
 from calibre.ebooks.metadata import authors_to_string
 from calibre.utils.img import save_cover_data_to
 from calibre.utils.imghdr import identify
-from polyglot.builtins import unicode_type, string_or_bytes
+from polyglot.builtins import string_or_bytes
 
 TAGS = {
     'b': '\\b',
@@ -78,7 +75,7 @@ def txt2rtf(text):
     text = text.replace('}', r'\'7d')
     text = text.replace('\\', r'\'5c')
 
-    if not isinstance(text, unicode_type):
+    if not isinstance(text, str):
         return text
 
     buf = io.StringIO()
@@ -90,12 +87,12 @@ def txt2rtf(text):
             buf.write(x)
         else:
             # python2 and ur'\u' does not work
-            c = '\\u{0:d}?'.format(val)
+            c = f'\\u{val:d}?'
             buf.write(c)
     return buf.getvalue()
 
 
-class RTFMLizer(object):
+class RTFMLizer:
 
     def __init__(self, log):
         self.log = log
@@ -153,7 +150,7 @@ class RTFMLizer(object):
         return text
 
     def header(self):
-        header = '{\\rtf1{\\info{\\title %s}{\\author %s}}\\ansi\\ansicpg1252\\deff0\\deflang1033\n' % (
+        header = '{{\\rtf1{{\\info{{\\title {}}}{{\\author {}}}}}\\ansi\\ansicpg1252\\deff0\\deflang1033\n'.format(
             self.oeb_book.metadata.title[0].value, authors_to_string([x.value for x in self.oeb_book.metadata.creator]))
         return header + (
             '{\\fonttbl{\\f0\\froman\\fprq2\\fcharset128 Times New Roman;}{\\f1\\froman\\fprq2\\fcharset128 Times New Roman;}{\\f2\\fswiss\\fprq2\\fcharset128 Arial;}{\\f3\\fnil\\fprq2\\fcharset128 Arial;}{\\f4\\fnil\\fprq2\\fcharset128 MS Mincho;}{\\f5\\fnil\\fprq2\\fcharset128 Tahoma;}{\\f6\\fnil\\fprq0\\fcharset128 Tahoma;}}\n'  # noqa
@@ -198,7 +195,7 @@ class RTFMLizer(object):
 
     def clean_text(self, text):
         # Remove excessive newlines
-        text = re.sub('%s{3,}' % os.linesep, '%s%s' % (os.linesep, os.linesep), text)
+        text = re.sub('%s{3,}' % os.linesep, f'{os.linesep}{os.linesep}', text)
 
         # Remove excessive spaces
         text = re.sub('[ ]{2,}', ' ', text)
@@ -255,7 +252,7 @@ class RTFMLizer(object):
                 if 'block' not in tag_stack:
                     block_start = r'{\par\pard\hyphpar '
                     block_end = '}'
-                text += '%s SPECIAL_IMAGE-%s-REPLACE_ME %s' % (block_start, src, block_end)
+                text += f'{block_start} SPECIAL_IMAGE-{src}-REPLACE_ME {block_end}'
 
         single_tag = SINGLE_TAGS.get(tag, None)
         if single_tag:
@@ -275,7 +272,7 @@ class RTFMLizer(object):
                 text += '{%s\n' % style_tag
                 tag_stack.append(style_tag)
 
-        # Proccess tags that contain text.
+        # Process tags that contain text.
         if hasattr(elem, 'text') and elem.text:
             text += txt2rtf(elem.text)
 

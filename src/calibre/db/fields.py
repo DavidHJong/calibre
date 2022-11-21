@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
+import sys
 from threading import Lock
 from collections import defaultdict, Counter
 from functools import partial
@@ -18,15 +18,33 @@ from calibre.utils.config_base import tweaks
 from calibre.utils.icu import sort_key
 from calibre.utils.date import UNDEFINED_DATE, clean_date_for_sort, parse_date
 from calibre.utils.localization import calibre_langcode_to_name
-from polyglot.builtins import iteritems, unicode_type
+from polyglot.builtins import iteritems
+
+
+rendering_composite_name = '__rendering_composite__'
 
 
 def bool_sort_key(bools_are_tristate):
     return (lambda x:{True: 1, False: 2, None: 3}.get(x, 3)) if bools_are_tristate else lambda x:{True: 1, False: 2, None: 2}.get(x, 2)
 
 
-def numeric_sort_key(x):
-    return x or 0
+def sort_value_for_undefined_numbers():
+    t = tweaks['value_for_undefined_numbers_when_sorting']
+    try:
+        if t == 'minimum':
+            return float('-inf')
+        if t == 'maximum':
+            return float('inf')
+        return float(t)
+    except Exception:
+        print('***** Bad value in undefined sort number tweak', t, file=sys.stderr)
+        return 0
+
+
+def numeric_sort_key(defval, x):
+    # It isn't clear whether this function can ever be called with a non-numeric
+    # argument, but we check just in case
+    return x if type(x) in (int, float) else defval
 
 
 IDENTITY = lambda x: x
@@ -39,7 +57,7 @@ class InvalidLinkTable(Exception):
         self.field_name = name
 
 
-class Field(object):
+class Field:
 
     is_many = False
     is_many_many = False
@@ -59,8 +77,8 @@ class Field(object):
         self._default_sort_key = b''
 
         if dt in {'int', 'float', 'rating'}:
-            self._default_sort_key = 0
-            self._sort_key = numeric_sort_key
+            self._default_sort_key = sort_value_for_undefined_numbers()
+            self._sort_key = partial(numeric_sort_key, self._default_sort_key)
         elif dt == 'bool':
             self._default_sort_key = None
             self._sort_key = bool_sort_key(bools_are_tristate)
@@ -85,7 +103,7 @@ class Field(object):
             self._sort_key = lambda x: sort_key(author_to_author_sort(x))
             self.sort_sort_key = False
         self.default_value = {} if name == 'identifiers' else () if self.is_multiple else None
-        self.category_formatter = unicode_type
+        self.category_formatter = str
         if dt == 'rating':
             if self.metadata['display'].get('allow_half_stars', False):
                 self.category_formatter = lambda x: rating_to_stars(x, True)
@@ -232,6 +250,7 @@ class CompositeField(OneToOneField):
         composite_sort = m.get('display', {}).get('composite_sort', None)
         if composite_sort == 'number':
             self._default_sort_key = 0
+            self._undefined_number_sort_key = sort_value_for_undefined_numbers()
             self._sort_key = self.number_sort_key
         elif composite_sort == 'date':
             self._default_sort_key = UNDEFINED_DATE
@@ -262,7 +281,7 @@ class CompositeField(OneToOneField):
                 val = val[:(-2 if p > 1 else -1)].strip()
             val = atof(val) * p
         except (TypeError, AttributeError, ValueError, KeyError):
-            val = 0.0
+            val = self._undefined_number_sort_key
         return val
 
     def date_sort_key(self, val):
@@ -280,7 +299,8 @@ class CompositeField(OneToOneField):
         ans = formatter.safe_format(
             self.metadata['display']['composite_template'], mi, _('TEMPLATE ERROR'),
             mi, column_name=self._composite_name, template_cache=template_cache,
-            template_functions=self.get_template_functions()).strip()
+            template_functions=self.get_template_functions(),
+            global_vars={rendering_composite_name:'1'}).strip()
         with self._lock:
             self._render_cache[book_id] = ans
         return ans
@@ -325,11 +345,17 @@ class CompositeField(OneToOneField):
         for book_id in candidates:
             vals = self.get_value_with_cache(book_id, get_metadata)
             vals = (vv.strip() for vv in vals.split(splitter)) if splitter else (vals,)
+            found = False
             for v in vals:
                 if v:
                     val_map[v].add(book_id)
-        for val, book_ids in iteritems(val_map):
-            yield val, book_ids
+                    found = True
+            if not found:
+                # Convert columns with no value to None to ensure #x:false
+                # searches work. We do it outside the loop to avoid generating
+                # None for is_multiple columns containing text like "a,,,b".
+                val_map[None].add(book_id)
+        yield from iteritems(val_map)
 
     def iter_counts(self, candidates, get_metadata=None):
         val_map = defaultdict(set)
@@ -343,8 +369,7 @@ class CompositeField(OneToOneField):
             else:
                 length = 0
             val_map[length].add(book_id)
-        for val, book_ids in iteritems(val_map):
-            yield val, book_ids
+        yield from iteritems(val_map)
 
     def get_composite_categories(self, tag_class, book_rating_map, book_ids,
                                  is_multiple, get_metadata):
@@ -437,11 +462,10 @@ class OnDeviceField(OneToOneField):
         val_map = defaultdict(set)
         for book_id in candidates:
             val_map[self.for_book(book_id, default_value=default_value)].add(book_id)
-        for val, book_ids in iteritems(val_map):
-            yield val, book_ids
+        yield from iteritems(val_map)
 
 
-class LazySortMap(object):
+class LazySortMap:
 
     __slots__ = ('default_sort_key', 'sort_key_func', 'id_map', 'cache')
 
@@ -562,8 +586,7 @@ class ManyToManyField(Field):
         cbm = self.table.book_col_map
         for book_id in candidates:
             val_map[len(cbm.get(book_id, ()))].add(book_id)
-        for count, book_ids in iteritems(val_map):
-            yield count, book_ids
+        yield from iteritems(val_map)
 
     @property
     def book_value_map(self):
@@ -577,8 +600,10 @@ class ManyToManyField(Field):
 class IdentifiersField(ManyToManyField):
 
     def for_book(self, book_id, default_value=None):
-        ids = self.table.book_col_map.get(book_id, ())
-        if not ids:
+        ids = self.table.book_col_map.get(book_id, None)
+        if ids:
+            ids = ids.copy()
+        else:
             try:
                 ids = default_value.copy()  # in case default_value is a mutable dict
             except AttributeError:
@@ -664,7 +689,7 @@ class FormatsField(ManyToManyField):
         return ans
 
 
-class LazySeriesSortMap(object):
+class LazySeriesSortMap:
 
     __slots__ = ('default_sort_key', 'sort_key_func', 'id_map', 'cache')
 

@@ -1,6 +1,3 @@
-# -*- encoding: utf-8 -*-
-
-
 '''
 CSS property propagation class.
 '''
@@ -21,12 +18,18 @@ from calibre.ebooks import unit_convert
 from calibre.ebooks.oeb.base import XHTML, XHTML_NS, CSS_MIME, OEB_STYLES, xpath, urlnormalize
 from calibre.ebooks.oeb.normalize_css import DEFAULTS, normalizers
 from css_selectors import Select, SelectorError, INAPPROPRIATE_PSEUDO_CLASSES
-from polyglot.builtins import iteritems, unicode_type, filter
+from polyglot.builtins import iteritems
 from tinycss.media3 import CSSMedia3Parser
 
 css_parser_log.setLevel(logging.WARN)
 
 _html_css_stylesheet = None
+
+
+def validate_color(col):
+    return cssprofiles.validateWithProfile('color',
+                col,
+                profiles=[profiles.Profiles.CSS_LEVEL_2])[1]
 
 
 def html_css_stylesheet():
@@ -97,7 +100,14 @@ def test_media_ok():
     assert not media_ok('screen and (device-width:10px)')
 
 
-class StylizerRules(object):
+class style_map(dict):
+
+    def __init__(self):
+        super().__init__()
+        self.important_properties = set()
+
+
+class StylizerRules:
 
     def __init__(self, opts, profile, stylesheets):
         self.opts, self.profile, self.stylesheets = opts, profile, stylesheets
@@ -141,16 +151,24 @@ class StylizerRules(object):
         return results
 
     def flatten_style(self, cssstyle):
-        style = {}
+        style = style_map()
         for prop in cssstyle:
             name = prop.name
             normalizer = normalizers.get(name, None)
+            is_important = prop.priority == 'important'
             if normalizer is not None:
-                style.update(normalizer(name, prop.cssValue))
+                for name, val in normalizer(name, prop.propertyValue).items():
+                    style[name] = val
+                    if is_important:
+                        style.important_properties.add(name)
             elif name == 'text-align':
                 style['text-align'] = self._apply_text_align(prop.value)
+                if is_important:
+                    style.important_properties.add(name)
             else:
                 style[name] = prop.value
+                if is_important:
+                    style.important_properties.add(name)
         if 'font-size' in style:
             size = style['font-size']
             if size == 'normal':
@@ -183,7 +201,7 @@ class StylizerRules(object):
         return True
 
 
-class Stylizer(object):
+class Stylizer:
     STYLESHEETS = WeakKeyDictionary()
 
     def __init__(self, tree, path, oeb, opts, profile=None,
@@ -306,7 +324,7 @@ class Stylizer(object):
             try:
                 matches = tuple(select(text))
             except SelectorError as err:
-                self.logger.error('Ignoring CSS rule with invalid selector: %r (%s)' % (text, as_unicode(err)))
+                self.logger.error(f'Ignoring CSS rule with invalid selector: {text!r} ({as_unicode(err)})')
                 continue
 
             if fl is not None:
@@ -318,7 +336,7 @@ class Stylizer(object):
                         for x in elem.iter('*'):
                             if x.text:
                                 punctuation_chars = []
-                                text = unicode_type(x.text)
+                                text = str(x.text)
                                 while text:
                                     category = unicodedata.category(text[0])
                                     if category[0] not in {'P', 'Z'}:
@@ -397,23 +415,27 @@ class Stylizer(object):
                 size = float(style['font-size'][:-2])
                 style['font-size'] = "%.2fpt" % (size * font_scale)
             style = ';\n    '.join(': '.join(item) for item in style.items())
-            rules.append('%s {\n    %s;\n}' % (selector, style))
+            rules.append(f'{selector} {{\n    {style};\n}}')
         return '\n'.join(rules)
 
 
-class Style(object):
+no_important_properties = frozenset()
+
+
+class Style:
     MS_PAT = re.compile(r'^\s*(mso-|panose-|text-underline|tab-interval)')
 
     def __init__(self, element, stylizer):
         self._element = element
         self._profile = stylizer.profile
         self._stylizer = stylizer
-        self._style = {}
+        self._style = style_map()
         self._fontSize = None
         self._width = None
         self._height = None
         self._lineHeight = None
         self._bgcolor = None
+        self._fgcolor = None
         self._pseudo_classes = {}
         stylizer._styles[element] = self
 
@@ -424,7 +446,25 @@ class Style(object):
         return self._style.pop(prop, default)
 
     def _update_cssdict(self, cssdict):
-        self._style.update(cssdict)
+        self._update_style(cssdict)
+
+    def _update_style(self, cssdict):
+        current_ip = getattr(self._style, 'important_properties', no_important_properties)
+        if current_ip is no_important_properties:
+            s = style_map()
+            s.update(self._style)
+            self._style = s
+            current_ip = self._style.important_properties
+        update_ip = getattr(cssdict, 'important_properties', no_important_properties)
+        for name, val in cssdict.items():
+            override = False
+            if name in update_ip:
+                current_ip.add(name)
+                override = True
+            elif name not in current_ip:
+                override = True
+            if override:
+                self._style[name] = val
 
     def _update_pseudo_class(self, name, cssdict):
         orig = self._pseudo_classes.get(name, {})
@@ -446,7 +486,7 @@ class Style(object):
             return
         if url_replacer is not None:
             replaceUrls(style, url_replacer, ignoreImportRules=True)
-        self._style.update(self._stylizer.flatten_style(style))
+        self._update_style(self._stylizer.flatten_style(style))
 
     def _has_parent(self):
         try:
@@ -467,9 +507,7 @@ class Style(object):
         return self._unit_convert(self._get(name))
 
     def _get(self, name):
-        result = None
-        if name in self._style:
-            result = self._style[name]
+        result = self._style.get(name, None)
         if (result == 'inherit' or (result is None and name in INHERITED and self._has_parent())):
             stylizer = self._stylizer
             result = stylizer.style(self._element.getparent())._get(name)
@@ -492,17 +530,22 @@ class Style(object):
         return (self._profile.dpi / 72) * value
 
     @property
+    def color(self):
+        if self._fgcolor is None:
+            val = self._get('color')
+            if val and validate_color(val):
+                self._fgcolor = val
+            else:
+                self._fgcolor = DEFAULTS['color']
+        return self._fgcolor
+
+    @property
     def backgroundColor(self):
         '''
         Return the background color by parsing both the background-color and
         background shortcut properties. Note that inheritance/default values
         are not used. None is returned if no background color is set.
         '''
-
-        def validate_color(col):
-            return cssprofiles.validateWithProfile('color',
-                        col,
-                        profiles=[profiles.Profiles.CSS_LEVEL_2])[1]
 
         if self._bgcolor is None:
             col = None
@@ -514,7 +557,7 @@ class Style(object):
                 if val is not None:
                     try:
                         style = parseStyle('background: '+val, validate=False)
-                        val = style.getProperty('background').cssValue
+                        val = style.getProperty('background').propertyValue
                         try:
                             val = list(val)
                         except:
@@ -593,7 +636,7 @@ class Style(object):
         x = self._style.get(attr)
         if x is not None:
             if x == 'auto':
-                ans = self._unit_convert(unicode_type(img_size) + 'px', base=base)
+                ans = self._unit_convert(str(img_size) + 'px', base=base)
             else:
                 x = self._unit_convert(x, base=base)
                 if isinstance(x, numbers.Number):
@@ -605,7 +648,7 @@ class Style(object):
                 if isinstance(x, numbers.Number):
                     ans = x
         if ans is None:
-            ans = self._unit_convert(unicode_type(img_size) + 'px', base=base)
+            ans = self._unit_convert(str(img_size) + 'px', base=base)
         maa = self._style.get('max-' + attr)
         if maa is not None:
             x = self._unit_convert(maa, base=base)
@@ -641,12 +684,12 @@ class Style(object):
                 result = base
             else:
                 result = self._unit_convert(width, base=base)
-            if isinstance(result, (unicode_type, bytes)):
+            if isinstance(result, (str, bytes)):
                 result = self._profile.width
             self._width = result
             if 'max-width' in self._style:
                 result = self._unit_convert(self._style['max-width'], base=base)
-                if isinstance(result, (unicode_type, bytes)):
+                if isinstance(result, (str, bytes)):
                     result = self._width
                 if result < self._width:
                     self._width = result
@@ -678,12 +721,12 @@ class Style(object):
                 result = base
             else:
                 result = self._unit_convert(height, base=base)
-            if isinstance(result, (unicode_type, bytes)):
+            if isinstance(result, (str, bytes)):
                 result = self._profile.height
             self._height = result
             if 'max-height' in self._style:
                 result = self._unit_convert(self._style['max-height'], base=base)
-                if isinstance(result, (unicode_type, bytes)):
+                if isinstance(result, (str, bytes)):
                     result = self._height
                 if result < self._height:
                     self._height = result
@@ -788,7 +831,7 @@ class Style(object):
 
     def __str__(self):
         items = sorted(iteritems(self._style))
-        return '; '.join("%s: %s" % (key, val) for key, val in items)
+        return '; '.join(f"{key}: {val}" for key, val in items)
 
     def cssdict(self):
         return dict(self._style)

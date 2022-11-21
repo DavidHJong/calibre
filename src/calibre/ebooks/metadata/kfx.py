@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>, John Howell <jhowell@acm.org>'
 
 
@@ -16,7 +15,6 @@ from calibre.utils.config_base import tweaks
 from calibre.utils.date import parse_only_date
 from calibre.utils.localization import canonicalize_lang
 from calibre.utils.imghdr import identify
-from polyglot.builtins import unicode_type, filter, map
 from polyglot.binary import as_base64_bytes, from_base64_bytes
 
 
@@ -68,7 +66,7 @@ def hexs(string, sep=' '):
     return sep.join('%02x' % b for b in string)
 
 
-class PackedData(object):
+class PackedData:
 
     '''
     Simplify unpacking of packed binary data structures
@@ -364,4 +362,4 @@ if __name__ == '__main__':
     from calibre import prints
     with open(sys.argv[-1], 'rb') as f:
         mi = read_metadata_kfx(f)
-        prints(unicode_type(mi))
+        prints(str(mi))

@@ -1,29 +1,33 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import shutil, os, re, struct, textwrap, io
+import io
+import os
+import re
+import shutil
+import struct
+import textwrap
+from lxml import etree, html
 
-from lxml import html, etree
-
-from calibre import xml_entity_to_unicode, entity_to_unicode, guess_type
-from calibre.utils.cleantext import clean_ascii_chars, clean_xml_chars
+from calibre import entity_to_unicode, guess_type, xml_entity_to_unicode
 from calibre.ebooks import DRMError, unit_convert
 from calibre.ebooks.chardet import strip_encoding_declarations
-from calibre.ebooks.mobi import MobiError
-from calibre.ebooks.mobi.huffcdic import HuffReader
 from calibre.ebooks.compression.palmdoc import decompress_doc
 from calibre.ebooks.metadata import MetaInformation
-from calibre.ebooks.metadata.opf2 import OPFCreator, OPF
+from calibre.ebooks.metadata.opf2 import OPF, OPFCreator
 from calibre.ebooks.metadata.toc import TOC
+from calibre.ebooks.mobi import MobiError
+from calibre.ebooks.mobi.huffcdic import HuffReader
 from calibre.ebooks.mobi.reader.headers import BookHeader
-from calibre.utils.img import save_cover_data_to, gif_data_to_png_data, AnimatedGIF
+from calibre.utils.cleantext import clean_ascii_chars, clean_xml_chars
+from calibre.utils.img import AnimatedGIF, gif_data_to_png_data, save_cover_data_to
 from calibre.utils.imghdr import what
-from polyglot.builtins import iteritems, unicode_type, range, map
+from calibre.utils.logging import default_log
+from polyglot.builtins import iteritems
 
 
 class TopazError(ValueError):
@@ -39,15 +43,15 @@ class KFXError(ValueError):
         ).format('https://www.mobileread.com/forums/showthread.php?t=283371'))
 
 
-class MobiReader(object):
+class MobiReader:
     PAGE_BREAK_PAT = re.compile(
         r'<\s*/{0,1}\s*mbp:pagebreak((?:\s+[^/>]*){0,1})/{0,1}\s*>\s*(?:<\s*/{0,1}\s*mbp:pagebreak\s*/{0,1}\s*>)*',
         re.IGNORECASE)
     IMAGE_ATTRS = ('lowrecindex', 'recindex', 'hirecindex')
 
-    def __init__(self, filename_or_stream, log, user_encoding=None, debug=None,
+    def __init__(self, filename_or_stream, log=None, user_encoding=None, debug=None,
             try_extra_data_fix=False):
-        self.log = log
+        self.log = log or default_log
         self.debug = debug
         self.embedded_mi = None
         self.warned_about_trailing_entry_corruption = False
@@ -297,7 +301,7 @@ class MobiReader(object):
             pass
 
         def write_as_utf8(path, data):
-            if isinstance(data, unicode_type):
+            if isinstance(data, str):
                 data = data.encode('utf-8')
             with lopen(path, 'wb') as f:
                 f.write(data)
@@ -316,7 +320,7 @@ class MobiReader(object):
 
         css = [self.base_css_rules, '\n\n']
         for cls, rule in self.tag_css_rules.items():
-            css.append('.%s { %s }\n\n' % (cls, rule))
+            css.append(f'.{cls} {{ {rule} }}\n\n')
         write_as_utf8('styles.css', ''.join(css))
 
         if self.book_header.exth is not None or self.embedded_mi is not None:
@@ -778,7 +782,7 @@ class MobiReader(object):
             if flags & 1:
                 try:
                     num += sizeof_trailing_entry(data, size - num)
-                except IndexError:
+                except (IndexError, TypeError):
                     self.warn_about_trailing_entry_corruption()
                     return 0
             flags >>= 1
@@ -911,6 +915,9 @@ class MobiReader(object):
                     imgfmt = 'png'
                 except AnimatedGIF:
                     pass
+                except OSError:
+                    self.log.warn(f'Ignoring undecodeable GIF image at index {image_index}')
+                    continue
             path = os.path.join(output_dir, '%05d.%s' % (image_index, imgfmt))
             image_name_map[image_index] = os.path.basename(path)
             if imgfmt == 'png':

@@ -272,7 +272,7 @@ class scoped_com_initializer {  // {{{
 	public:
 		scoped_com_initializer() : m_succeded(false) { if (SUCCEEDED(CoInitialize(NULL))) m_succeded = true; }
 		~scoped_com_initializer() { CoUninitialize(); }
-		bool succeded() { return m_succeded; }
+		bool succeeded() { return m_succeded; }
 	private:
 		bool m_succeded;
 		scoped_com_initializer( const scoped_com_initializer & ) ;
@@ -460,7 +460,8 @@ winutil_read_directory_changes(PyObject *self, PyObject *args) {
             p = (PFILE_NOTIFY_INFORMATION)(PyBytes_AS_STRING(buffer) + offset);
             offset += p->NextEntryOffset;
             if (p->FileNameLength) {
-                PyObject *temp = Py_BuildValue("ku#", p->Action, p->FileName, p->FileNameLength / sizeof(wchar_t));
+                Py_ssize_t psz = p->FileNameLength / sizeof(wchar_t);
+                PyObject *temp = Py_BuildValue("ku#", p->Action, p->FileName, psz);
                 if (!temp) { Py_DECREF(ans); return NULL; }
                 int ret = PyList_Append(ans, temp);
                 Py_DECREF(temp);
@@ -524,6 +525,16 @@ supports_hardlinks(PyObject *self, PyObject *args) {
 	if (!GetVolumeInformationW(path.ptr(), NULL, 0, NULL, &max_component_length, &flags, NULL, 0)) return PyErr_SetExcFromWindowsErrWithFilenameObject(PyExc_OSError, 0, PyTuple_GET_ITEM(args, 0));
 	if (flags & FILE_SUPPORTS_HARD_LINKS) Py_RETURN_TRUE;
 	Py_RETURN_FALSE;
+}
+
+static PyObject*
+filesystem_type_name(PyObject *self, PyObject *args) {
+	wchar_raii path;
+	if (!PyArg_ParseTuple(args, "O&", py_to_wchar_no_none, &path)) return NULL;
+	DWORD max_component_length, flags;
+    wchar_t fsname[128];
+	if (!GetVolumeInformationW(path.ptr(), NULL, 0, NULL, &max_component_length, &flags, fsname, sizeof(fsname)/sizeof(fsname[0]))) return PyErr_SetExcFromWindowsErrWithFilenameObject(PyExc_OSError, 0, PyTuple_GET_ITEM(args, 0));
+    return PyUnicode_FromWideChar(fsname, -1);
 }
 
 static PyObject*
@@ -637,7 +648,7 @@ winutil_move_to_trash(PyObject *self, PyObject *args) {
 	if (!PyArg_ParseTuple(args, "O&", py_to_wchar, &path)) return NULL;
 
 	scoped_com_initializer com;
-	if (!com.succeded()) { PyErr_SetString(PyExc_OSError, "Failed to initialize COM"); return NULL; }
+	if (!com.succeeded()) { PyErr_SetString(PyExc_OSError, "Failed to initialize COM"); return NULL; }
 
 	CComPtr<IFileOperation> pfo;
 	if (FAILED(CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pfo)))) {
@@ -687,7 +698,7 @@ resolve_lnk(PyObject *self, PyObject *args) {
 		return NULL;
 	}
 	scoped_com_initializer com;
-	if (!com.succeded()) { PyErr_SetString(PyExc_OSError, "Failed to initialize COM"); return NULL; }
+	if (!com.succeeded()) { PyErr_SetString(PyExc_OSError, "Failed to initialize COM"); return NULL; }
 	CComPtr<IShellLink> shell_link;
 	if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&shell_link)))) {
 		PyErr_SetString(PyExc_OSError, "Failed to create IShellLink instance");
@@ -723,7 +734,7 @@ winutil_manage_shortcut(PyObject *self, PyObject *args) {
 	}
 
 	scoped_com_initializer com;
-	if (!com.succeded()) { PyErr_SetString(PyExc_OSError, "Failed to initialize COM"); return NULL; }
+	if (!com.succeeded()) { PyErr_SetString(PyExc_OSError, "Failed to initialize COM"); return NULL; }
 
 	CComPtr<IShellLink> shell_link;
 	if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&shell_link)))) {
@@ -959,7 +970,8 @@ is_wow64_process(PyObject *self, PyObject *args) {
 
 static PyObject*
 write_file(PyObject *self, PyObject *args) {
-    int size, offset = 0;
+    int offset = 0;
+    Py_ssize_t size;
     const char *data;
     HANDLE handle;
     if (!PyArg_ParseTuple(args, "O&y#|i", convert_handle, &handle, &data, &size, &offset)) return NULL;
@@ -983,6 +995,14 @@ wait_named_pipe(PyObject *self, PyObject *args) {
     Py_END_ALLOW_THREADS
     if (!ok) return PyErr_SetExcFromWindowsErrWithFilenameObject(PyExc_OSError, 0, PyTuple_GET_ITEM(args, 0));
     Py_RETURN_TRUE;
+}
+
+static PyObject*
+set_thread_execution_state(PyObject *self, PyObject *args) {
+    unsigned long new_state;
+    if (!PyArg_ParseTuple(args, "k", &new_state)) return NULL;
+    if (SetThreadExecutionState(new_state) == NULL) return PyErr_SetFromWindowsErr(0);
+    Py_RETURN_NONE;
 }
 
 // Icon loading {{{
@@ -1039,7 +1059,8 @@ load_icon(PyObject *args, HMODULE handle, GRPICONDIRENTRY *entry) {
 	DWORD sz = SizeofResource(handle, res);
 	if (!sz) return NULL;
 	HICON icon = CreateIconFromResourceEx(data, sz, TRUE, 0x00030000, 0, 0, LR_DEFAULTCOLOR);
-	return Py_BuildValue("y#N", data, sz, Handle_create(icon, IconHandle));
+    Py_ssize_t psz = sz;
+	return Py_BuildValue("y#N", data, psz, Handle_create(icon, IconHandle));
 }
 
 struct GRPICONDIR {
@@ -1094,7 +1115,7 @@ get_icon_for_file(PyObject *self, PyObject *args) {
 	wchar_raii path;
 	if (!PyArg_ParseTuple(args, "O&", py_to_wchar_no_none, &path)) return NULL;
 	scoped_com_initializer com;
-	if (!com.succeded()) { PyErr_SetString(PyExc_OSError, "Failed to initialize COM"); return NULL; }
+	if (!com.succeeded()) { PyErr_SetString(PyExc_OSError, "Failed to initialize COM"); return NULL; }
 	SHFILEINFO fi = {0};
 	DWORD_PTR res;
 	Py_BEGIN_ALLOW_THREADS
@@ -1123,6 +1144,7 @@ static PyMethodDef winutil_methods[] = {
     M(get_dll_directory, METH_NOARGS),
     M(create_mutex, METH_VARARGS),
     M(supports_hardlinks, METH_VARARGS),
+    M(filesystem_type_name, METH_VARARGS),
     M(get_async_key_state, METH_VARARGS),
     M(create_named_pipe, METH_VARARGS),
     M(connect_named_pipe, METH_VARARGS),
@@ -1137,6 +1159,7 @@ static PyMethodDef winutil_methods[] = {
 	M(parse_cmdline, METH_VARARGS),
 	M(write_file, METH_VARARGS),
 	M(wait_named_pipe, METH_VARARGS),
+	M(set_thread_execution_state, METH_VARARGS),
 	M(known_folder_path, METH_VARARGS),
     M(get_computer_name, METH_VARARGS),
 
@@ -1465,6 +1488,12 @@ exec_module(PyObject *m) {
     A(ComputerNamePhysicalDnsFullyQualified);
     A(ComputerNamePhysicalDnsHostname);
     A(ComputerNamePhysicalNetBIOS);
+
+    A(ES_AWAYMODE_REQUIRED);
+    A(ES_CONTINUOUS);
+    A(ES_DISPLAY_REQUIRED);
+    A(ES_SYSTEM_REQUIRED);
+    A(ES_USER_PRESENT);
 #undef A
     return 0;
 }

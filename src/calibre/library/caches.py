@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -10,6 +9,7 @@ import time, traceback, locale
 from itertools import repeat
 from datetime import timedelta
 from threading import Thread
+from contextlib import suppress
 
 from calibre.utils.config import tweaks, prefs
 from calibre.utils.date import parse_date, now, UNDEFINED_DATE, clean_date_for_sort
@@ -20,8 +20,7 @@ from calibre.db.search import CONTAINS_MATCH, EQUALS_MATCH, REGEXP_MATCH, _match
 from calibre.ebooks.metadata import title_sort, author_to_author_sort
 from calibre.ebooks.metadata.opf2 import metadata_to_opf
 from calibre import prints, force_unicode
-from polyglot.builtins import (iteritems, itervalues, map,
-        unicode_type, string_or_bytes, zip, cmp)
+from polyglot.builtins import iteritems, itervalues, string_or_bytes, cmp
 
 
 class MetadataBackup(Thread):  # {{{
@@ -138,7 +137,7 @@ del y, c, n, u
 
 
 def force_to_bool(val):
-    if isinstance(val, (bytes, unicode_type)):
+    if isinstance(val, (bytes, str)):
         if isinstance(val, bytes):
             val = force_unicode(val)
         try:
@@ -360,7 +359,7 @@ class ResultCache(SearchQueryParser):  # {{{
                 if item is None:
                     continue
                 v = item[loc]
-                if isinstance(v, (bytes, unicode_type)):
+                if isinstance(v, (bytes, str)):
                     v = parse_date(v)
                 if v is None or v <= UNDEFINED_DATE:
                     matches.add(item[0])
@@ -371,7 +370,7 @@ class ResultCache(SearchQueryParser):  # {{{
                 if item is None:
                     continue
                 v = item[loc]
-                if isinstance(v, (bytes, unicode_type)):
+                if isinstance(v, (bytes, str)):
                     v = parse_date(v)
                 if v is not None and v > UNDEFINED_DATE:
                     matches.add(item[0])
@@ -415,7 +414,7 @@ class ResultCache(SearchQueryParser):  # {{{
             if item is None or item[loc] is None:
                 continue
             v = item[loc]
-            if isinstance(v, (bytes, unicode_type)):
+            if isinstance(v, (bytes, str)):
                 v = parse_date(v)
             if relop(v, qd, field_count):
                 matches.add(item[0])
@@ -742,7 +741,7 @@ class ResultCache(SearchQueryParser):  # {{{
             # everything else, or 'all' matches
             matchkind, query = self._matchkind(query)
 
-            if not isinstance(query, unicode_type):
+            if not isinstance(query, str):
                 query = query.decode('utf-8')
 
             db_col = {}
@@ -851,7 +850,7 @@ class ResultCache(SearchQueryParser):  # {{{
     def _build_restriction_string(self, restriction):
         if self.base_restriction:
             if restriction:
-                return '(%s) and (%s)' % (self.base_restriction, restriction)
+                return f'({self.base_restriction}) and ({restriction})'
             else:
                 return self.base_restriction
         else:
@@ -867,7 +866,7 @@ class ResultCache(SearchQueryParser):  # {{{
         else:
             q = query
             if search_restriction:
-                q = '(%s) and (%s)' % (search_restriction, query)
+                q = f'({search_restriction}) and ({query})'
         if not q:
             if set_restriction_count:
                 self.search_restriction_book_count = len(self._map)
@@ -906,7 +905,7 @@ class ResultCache(SearchQueryParser):  # {{{
         self.search_restriction_name = s
 
     def search_restriction_applied(self):
-        return bool(self.search_restriction) or bool((self.base_restriction))
+        return bool(self.search_restriction) or bool(self.base_restriction)
 
     def get_search_restriction_book_count(self):
         return self.search_restriction_book_count
@@ -914,32 +913,30 @@ class ResultCache(SearchQueryParser):  # {{{
     def set_marked_ids(self, id_dict):
         '''
         ids in id_dict are "marked". They can be searched for by
-        using the search term ``marked:true``. Pass in an empty dictionary or
-        set to clear marked ids.
+        using the search term ``marked:true`` or ``marked:value``.
+        Pass in an empty dictionary or set to clear marked ids.
 
         :param id_dict: Either a dictionary mapping ids to values or a set
-        of ids. In the latter case, the value is set to 'true' for all ids. If
-        a mapping is provided, then the search can be used to search for
-        particular values: ``marked:value``
+        of ids. If a mapping is provided, then the search can be used to search
+        for particular values: ``marked:value``
         '''
         if not hasattr(id_dict, 'items'):
             # Simple list. Make it a dict of string 'true'
             self.marked_ids_dict = dict.fromkeys(id_dict, 'true')
         else:
             # Ensure that all the items in the dict are text
-            self.marked_ids_dict = dict(zip(iter(id_dict), map(unicode_type,
+            self.marked_ids_dict = dict(zip(iter(id_dict), map(str,
                 itervalues(id_dict))))
 
         # Set the values in the cache
         marked_col = self.FIELD_MAP['marked']
+        in_tag_browser_col = self.FIELD_MAP['in_tag_browser']
         for r in self.iterall():
-            r[marked_col] = None
+            r[marked_col] = r[in_tag_browser_col] = None
 
-        for id_, val in iteritems(self.marked_ids_dict):
-            try:
+        for id_, val in self.marked_ids_dict.items():
+            with suppress(Exception):
                 self._data[id_][marked_col] = val
-            except:
-                pass
 
     def get_marked(self, idx, index_is_id=True, default_value=None):
         id_ = idx if index_is_id else self[idx][0]
@@ -1059,7 +1056,7 @@ class ResultCache(SearchQueryParser):  # {{{
             if item is not None:
                 item.append(db.book_on_device_string(item[0]))
                 # Temp mark and series_sort columns
-                item.extend((None, None))
+                item.extend((None, None, None))
 
         marked_col = self.FIELD_MAP['marked']
         for id_,val in iteritems(self.marked_ids_dict):
@@ -1067,6 +1064,10 @@ class ResultCache(SearchQueryParser):  # {{{
                 self._data[id_][marked_col] = val
             except:
                 pass
+
+        in_tag_browser_col = self.FIELD_MAP['in_tag_browser']
+        for r in self.iterall():
+            r[in_tag_browser_col] = None
 
         self._map = [i[0] for i in self._data if i is not None]
         if field is not None:
@@ -1117,7 +1118,7 @@ class ResultCache(SearchQueryParser):  # {{{
             only_ids.sort(key=keyg)
 
 
-class SortKey(object):
+class SortKey:
 
     def __init__(self, orders, values):
         self.orders, self.values = orders, values
@@ -1148,7 +1149,7 @@ class SortKey(object):
         return self.compare_to_other(other) >= 0
 
 
-class SortKeyGenerator(object):
+class SortKeyGenerator:
 
     def __init__(self, fields, field_metadata, data, db_prefs):
         from calibre.utils.icu import sort_key

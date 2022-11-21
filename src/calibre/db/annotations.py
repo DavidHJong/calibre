@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2020, Kovid Goyal <kovid at kovidgoyal.net>
 
 from collections import defaultdict
@@ -9,6 +8,13 @@ from calibre.ebooks.epub.cfi.parse import cfi_sort_key
 from polyglot.builtins import itervalues
 
 no_cfi_sort_key = cfi_sort_key('/99999999')
+
+
+def unicode_normalize(text):
+    if text:
+        from unicodedata import normalize
+        text = normalize('NFKC', text)
+    return text
 
 
 def bookmark_sort_key(b):
@@ -125,4 +131,4 @@ def annot_db_data(annot):
         notes = annot.get('notes') or ''
         if notes:
             text += '\n\x1f\n' + notes
-    return aid, text
+    return aid, unicode_normalize(text)

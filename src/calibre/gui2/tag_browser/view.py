@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -11,7 +10,7 @@ from functools import partial
 
 from qt.core import (
     QStyledItemDelegate, Qt, QTreeView, pyqtSignal, QSize, QIcon, QApplication, QStyle, QAbstractItemView,
-    QMenu, QPoint, QToolTip, QCursor, QDrag, QRect, QModelIndex,
+    QMenu, QPoint, QToolTip, QCursor, QDrag, QRect, QModelIndex, QPointF, QStyleOptionViewItem,
     QLinearGradient, QPalette, QColor, QPen, QBrush, QFont, QTimer
 )
 
@@ -26,7 +25,6 @@ from calibre.gui2 import (config, gprefs, choose_files, pixmap_to_data,
                           rating_font, empty_index, question_dialog)
 from calibre.utils.icu import sort_key
 from calibre.utils.serialize import json_loads
-from polyglot.builtins import unicode_type, range, zip
 
 
 class TagDelegate(QStyledItemDelegate):  # {{{
@@ -51,7 +49,7 @@ class TagDelegate(QStyledItemDelegate):  # {{{
         painter.setClipRect(nr)
         bg = option.palette.window()
         if self.old_look:
-            bg = option.palette.alternateBase() if option.features&option.Alternate else option.palette.base()
+            bg = option.palette.alternateBase() if option.features&QStyleOptionViewItem.ViewItemFeature.Alternate else option.palette.base()
         painter.fillRect(r, bg)
         style.proxy().drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, option, painter, widget)
         painter.setOpacity(0.3)
@@ -81,7 +79,7 @@ class TagDelegate(QStyledItemDelegate):  # {{{
         is_search = (True if item.type == TagTreeItem.TAG and
                             item.tag.category == 'search' else False)
         if not is_search and (hover or gprefs['tag_browser_show_counts']):
-            count = unicode_type(index.data(COUNT_ROLE))
+            count = str(index.data(COUNT_ROLE))
             width = painter.fontMetrics().boundingRect(count).width()
             r = QRect(tr)
             r.setRight(r.right() - 1), r.setLeft(r.right() - width - 4)
@@ -97,7 +95,7 @@ class TagDelegate(QStyledItemDelegate):  # {{{
         lr.setRight(lr.right() * 2)
         br = painter.boundingRect(lr, flags, text)
         if br.width() > tr.width():
-            g = QLinearGradient(tr.topLeft(), tr.topRight())
+            g = QLinearGradient(QPointF(tr.topLeft()), QPointF(tr.topRight()))
             c = option.palette.color(QPalette.ColorRole.WindowText)
             g.setColorAt(0, c), g.setColorAt(0.8, c)
             c = QColor(c)
@@ -143,7 +141,7 @@ class TagDelegate(QStyledItemDelegate):  # {{{
                                       'the item in all books in your library. Is '
                                       'this really what you want to do?') + '</p>',
                                     yes_text=_('Yes, apply in entire library'),
-                                    no_text=_('No, apply only in VL'),
+                                    no_text=_('No, apply only in Virtual library'),
                                     skip_dialog_name='tag_item_rename_in_entire_library')
         if self.completion_data:
             editor = EditWithComplete(parent)
@@ -180,6 +178,7 @@ class TagsView(QTreeView):  # {{{
 
     def __init__(self, parent=None):
         QTreeView.__init__(self, parent=None)
+        self.possible_drag_start = None
         self.setProperty('frame_for_focus', True)
         self.setMouseTracking(True)
         self.alter_tb = None
@@ -197,14 +196,14 @@ class TagsView(QTreeView):  # {{{
         self.setDropIndicatorShown(True)
         self.setAutoExpandDelay(500)
         self.pane_is_visible = False
-        self.search_icon = QIcon(I('search.png'))
-        self.search_copy_icon = QIcon(I("search_copy_saved.png"))
-        self.user_category_icon = QIcon(I('tb_folder.png'))
-        self.edit_metadata_icon = QIcon(I('edit_input.png'))
-        self.delete_icon = QIcon(I('list_remove.png'))
-        self.rename_icon = QIcon(I('edit-undo.png'))
-        self.plus_icon = QIcon(I('plus.png'))
-        self.minus_icon = QIcon(I('minus.png'))
+        self.search_icon = QIcon.ic('search.png')
+        self.search_copy_icon = QIcon.ic("search_copy_saved.png")
+        self.user_category_icon = QIcon.ic('tb_folder.png')
+        self.edit_metadata_icon = QIcon.ic('edit_input.png')
+        self.delete_icon = QIcon.ic('list_remove.png')
+        self.rename_icon = QIcon.ic('edit-undo.png')
+        self.plus_icon = QIcon.ic('plus.png')
+        self.minus_icon = QIcon.ic('minus.png')
 
         self._model = TagsModel(self)
         self._model.search_item_renamed.connect(self.search_item_renamed)
@@ -215,8 +214,13 @@ class TagsView(QTreeView):  # {{{
         self._model.user_categories_edited.connect(self.user_categories_edited,
                 type=Qt.ConnectionType.QueuedConnection)
         self._model.drag_drop_finished.connect(self.drag_drop_finished)
+        self._model.convert_requested.connect(self.convert_requested)
         self.set_look_and_feel(first=True)
         QApplication.instance().palette_changed.connect(self.set_style_sheet, type=Qt.ConnectionType.QueuedConnection)
+
+    def convert_requested(self, book_ids, to_fmt):
+        from calibre.gui2.ui import get_gui
+        get_gui().iactions['Convert Books'].convert_ebooks_to_format(book_ids, to_fmt)
 
     def set_style_sheet(self):
         stylish_tb = '''
@@ -238,7 +242,7 @@ class TagsView(QTreeView):  # {{{
                     border: 1px solid #bfcde4;
                     border-radius: 6px;
                 }
-        '''.replace('PAD', unicode_type(gprefs['tag_browser_item_padding'])) + (
+        '''.replace('PAD', str(gprefs['tag_browser_item_padding'])) + (
             '' if gprefs['tag_browser_old_look'] else stylish_tb))
 
     def set_look_and_feel(self, first=False):
@@ -328,15 +332,44 @@ class TagsView(QTreeView):  # {{{
         self.collapsed.connect(self.collapse_node_and_children)
 
     def keyPressEvent(self, event):
+
+        def on_last_visible_item(dex, check_children):
+            model = self._model
+            if model.get_node(dex) == model.root_item:
+                # Got to root. There can't be any more children to show
+                return True
+            if check_children and self.isExpanded(dex):
+                # We are on a node with expanded children so there is a node to go to.
+                # We don't check children if we are moving up the parent hierarchy
+                return False
+            parent = model.parent(dex)
+            if dex.row() < model.rowCount(parent) - 1:
+                # Node has more nodes after it
+                return False
+            # Last node. Check the parent for further to see if there are more nodes
+            return on_last_visible_item(parent, False)
+
         # I don't see how current_index can ever be not valid, but ...
         if self.currentIndex().isValid():
-            if (gprefs['tag_browser_allow_keyboard_focus'] and
-                    event.key() == Qt.Key.Key_Return and self.state() != QAbstractItemView.State.EditingState):
-                self.toggle_current_index()
-                return
+            key = event.key()
+            if gprefs['tag_browser_allow_keyboard_focus']:
+                if key == Qt.Key.Key_Return and self.state() != QAbstractItemView.State.EditingState:
+                    self.toggle_current_index()
+                    return
+                # Check if we are moving the focus and we are at the beginning or the
+                # end of the list. The goal is to prevent moving focus away from the
+                # tag browser.
+                if key == Qt.Key.Key_Tab:
+                    if not on_last_visible_item(self.currentIndex(), True):
+                        QTreeView.keyPressEvent(self, event)
+                    return
+                if key == Qt.Key.Key_Backtab:
+                    if self.model().get_node(self.currentIndex()) != self._model.root_item.children[0]:
+                        QTreeView.keyPressEvent(self, event)
+                    return
             # If this is an edit request, mark the node to request whether to use VLs
             # As far as I can tell, F2 is used across all platforms
-            if event.key() == Qt.Key.Key_F2:
+            if key == Qt.Key.Key_F2:
                 node = self.model().get_node(self.currentIndex())
                 if node.type == TagTreeItem.TAG:
                     # Saved search nodes don't use the VL test/dialog
@@ -384,7 +417,12 @@ class TagsView(QTreeView):  # {{{
 
     def mousePressEvent(self, event):
         if event.buttons() & Qt.MouseButton.LeftButton:
-            self.possible_drag_start = event.pos()
+            # Only remember a possible drag start if the item is drag enabled
+            dex = self.indexAt(event.pos())
+            if self._model.flags(dex) & Qt.ItemFlag.ItemIsDragEnabled:
+                self.possible_drag_start = event.pos()
+            else:
+                self.possible_drag_start = None
         return QTreeView.mousePressEvent(self, event)
 
     def mouseMoveEvent(self, event):
@@ -399,7 +437,8 @@ class TagsView(QTreeView):  # {{{
             QTreeView.mouseMoveEvent(self, event)
             return
         # don't start drag/drop until the mouse has moved a bit.
-        if ((event.pos() - self.possible_drag_start).manhattanLength() <
+        if (self.possible_drag_start is None or
+            (event.pos() - self.possible_drag_start).manhattanLength() <
                                     QApplication.startDragDistance()):
             QTreeView.mouseMoveEvent(self, event)
             return
@@ -420,9 +459,9 @@ class TagsView(QTreeView):  # {{{
             categories stops working. Don't know why. To avoid the problem
             we fix the action in dragMoveEvent.
             '''
-            drag.exec_(Qt.DropAction.CopyAction|Qt.DropAction.MoveAction, Qt.DropAction.CopyAction)
+            drag.exec(Qt.DropAction.CopyAction|Qt.DropAction.MoveAction, Qt.DropAction.CopyAction)
         else:
-            drag.exec_(Qt.DropAction.CopyAction)
+            drag.exec(Qt.DropAction.CopyAction)
 
     def mouseDoubleClickEvent(self, event):
         # swallow these to avoid toggling and editing at the same time
@@ -447,8 +486,7 @@ class TagsView(QTreeView):  # {{{
         set_to: if None, advance the state. Otherwise must be one of the values
         in TAG_SEARCH_STATES
         '''
-        modifiers = int(QApplication.keyboardModifiers())
-        exclusive = modifiers not in (Qt.Modifier.CTRL, Qt.Modifier.SHIFT)
+        exclusive = QApplication.keyboardModifiers() not in (Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.ShiftModifier)
         if self._model.toggle(index, exclusive, set_to=set_to):
             # Reset the focus back to TB if it has it before the toggle
             # Must ask this question before starting the search because
@@ -466,10 +504,24 @@ class TagsView(QTreeView):  # {{{
 
     def context_menu_handler(self, action=None, category=None,
                              key=None, index=None, search_state=None,
-                             is_first_letter=False, ignore_vl=False):
+                             is_first_letter=False, ignore_vl=False,
+                             extra=None):
         if not action:
             return
+        from calibre.gui2.ui import get_gui
         try:
+            if action == 'dont_collapse_category':
+                if key not in extra:
+                    extra.append(key)
+                self.db.prefs.set('tag_browser_dont_collapse', extra)
+                self.recount()
+                return
+            if action == 'collapse_category':
+                if key in extra:
+                    extra.remove(key)
+                self.db.prefs.set('tag_browser_dont_collapse', extra)
+                self.recount()
+                return
             if action == 'set_icon':
                 try:
                     path = choose_files(self, 'choose_category_icon',
@@ -485,7 +537,7 @@ class TagsView(QTreeView):  # {{{
                         with open(os.path.join(d, 'icon_' + sanitize_file_name(key)+'.png'), 'wb') as f:
                             f.write(pixmap_to_data(p, format='PNG'))
                             path = os.path.basename(f.name)
-                        self._model.set_custom_category_icon(key, unicode_type(path))
+                        self._model.set_custom_category_icon(key, str(path))
                         self.recount()
                 except:
                     traceback.print_exc()
@@ -547,7 +599,6 @@ class TagsView(QTreeView):  # {{{
                 self._toggle(index, set_to=search_state)
                 return
             if action == "raw_search":
-                from calibre.gui2.ui import get_gui
                 get_gui().get_saved_search_text(search_name='search:' + key)
                 return
             if action == 'add_to_category':
@@ -569,6 +620,14 @@ class TagsView(QTreeView):  # {{{
                 self.delete_user_category.emit(key)
                 return
             if action == 'delete_search':
+                if not question_dialog(
+                    self,
+                    title=_('Delete Saved search'),
+                    msg='<p>'+ _('Delete the saved search: {}?').format(key),
+                    skip_dialog_name='tb_delete_saved_search',
+                    skip_dialog_msg=_('Show this confirmation again')
+                ):
+                    return
                 self.model().db.saved_search_delete(key)
                 self.rebuild_saved_searches.emit()
                 return
@@ -591,6 +650,10 @@ class TagsView(QTreeView):  # {{{
                 return
             if action == 'edit_author_link':
                 self.author_sort_edit.emit(self, index, False, True, False)
+                return
+            if action == 'remove_format':
+                gui = get_gui()
+                gui.iactions['Remove Books'].remove_format_from_selected_books(key)
                 return
 
             reset_filter_categories = True
@@ -652,19 +715,24 @@ class TagsView(QTreeView):  # {{{
         index = self.indexAt(point)
         self.context_menu = QMenu(self)
         added_show_hidden_categories = False
+        key = None
 
         def add_show_hidden_categories():
             nonlocal added_show_hidden_categories
             if self.hidden_categories and not added_show_hidden_categories:
                 added_show_hidden_categories = True
                 m = self.context_menu.addMenu(_('Show category'))
+                m.setIcon(QIcon.ic('plus.png'))
                 for col in sorted(self.hidden_categories,
                         key=lambda x: sort_key(self.db.field_metadata[x]['name'])):
-                    m.addAction(self.db.field_metadata[col]['name'],
+                    ac = m.addAction(self.db.field_metadata[col]['name'],
                         partial(self.context_menu_handler, action='show', category=col))
+                    ic = self.model().category_custom_icons.get(col)
+                    if ic:
+                        ac.setIcon(QIcon.ic(ic))
                 m.addSeparator()
                 m.addAction(_('All categories'),
-                        partial(self.context_menu_handler, action='defaults'))
+                        partial(self.context_menu_handler, action='defaults')).setIcon(QIcon.ic('plusplus.png'))
 
         search_submenu = None
         if index.isValid():
@@ -681,7 +749,7 @@ class TagsView(QTreeView):  # {{{
                 if not item.category_key.startswith('@'):
                     while item.parent != self._model.root_item:
                         item = item.parent
-                category = unicode_type(item.name or '')
+                category = str(item.name or '')
                 key = item.category_key
                 # Verify that we are working with a field that we know something about
                 if key not in self.db.field_metadata:
@@ -722,10 +790,10 @@ class TagsView(QTreeView):  # {{{
                         if key == 'authors':
                             self.context_menu.addAction(_('Edit sort for %s')%display_name(tag),
                                     partial(self.context_menu_handler,
-                                            action='edit_author_sort', index=tag.id))
+                                            action='edit_author_sort', index=tag.id)).setIcon(QIcon.ic('auto_author_sort.png'))
                             self.context_menu.addAction(_('Edit link for %s')%display_name(tag),
                                     partial(self.context_menu_handler,
-                                            action='edit_author_link', index=tag.id))
+                                            action='edit_author_link', index=tag.id)).setIcon(QIcon.ic('insert-link.png'))
 
                         # is_editable is also overloaded to mean 'can be added
                         # to a User category'
@@ -797,9 +865,10 @@ class TagsView(QTreeView):  # {{{
                     if tag.is_searchable:
                         # Add the search for value items. All leaf nodes are searchable
                         self.context_menu.addSeparator()
-                        search_submenu = self.context_menu.addMenu(_('Search'))
+                        search_submenu = self.context_menu.addMenu(_('Search for'))
+                        search_submenu.setIcon(QIcon.ic('search.png'))
                         search_submenu.addAction(self.search_icon,
-                                _('Search for %s')%display_name(tag),
+                                '%s'%display_name(tag),
                                 partial(self.context_menu_handler, action='search',
                                         search_state=TAG_SEARCH_STATES['mark_plus'],
                                         index=index))
@@ -807,56 +876,75 @@ class TagsView(QTreeView):  # {{{
                                             len(tag_item.children))
                         if add_child_search:
                             search_submenu.addAction(self.search_icon,
-                                    _('Search for %s and its children')%display_name(tag),
+                                    _('%s and its children')%display_name(tag),
                                     partial(self.context_menu_handler, action='search',
                                             search_state=TAG_SEARCH_STATES['mark_plusplus'],
                                             index=index))
                         search_submenu.addAction(self.search_icon,
-                                _('Search for everything but %s')%display_name(tag),
+                                _('Everything but %s')%display_name(tag),
                                 partial(self.context_menu_handler, action='search',
                                         search_state=TAG_SEARCH_STATES['mark_minus'],
                                         index=index))
                         if add_child_search:
                             search_submenu.addAction(self.search_icon,
-                                    _('Search for everything but %s and its children')%display_name(tag),
+                                    _('Everything but %s and its children')%display_name(tag),
                                     partial(self.context_menu_handler, action='search',
                                             search_state=TAG_SEARCH_STATES['mark_minusminus'],
                                             index=index))
                         if key == 'search':
                             search_submenu.addAction(self.search_copy_icon,
-                                     _('Search using saved search expression'),
+                                     _('The saved search expression'),
                                      partial(self.context_menu_handler, action='raw_search',
-                                             key=tag.name))
+                                             key=tag.original_name))
                     self.context_menu.addSeparator()
                 elif key.startswith('@') and not item.is_gst:
                     if item.can_be_edited:
                         self.context_menu.addAction(self.rename_icon,
-                            _('Rename %s')%item.py_name,
+                            _('Rename %s')%item.py_name.replace('&', '&&'),
                             partial(self.context_menu_handler, action='edit_item_no_vl',
                                     index=index, ignore_vl=True))
                     self.context_menu.addAction(self.user_category_icon,
-                            _('Add sub-category to %s')%item.py_name,
+                            _('Add sub-category to %s')%item.py_name.replace('&', '&&'),
                             partial(self.context_menu_handler,
                                     action='add_subcategory', key=key))
                     self.context_menu.addAction(self.delete_icon,
-                            _('Delete User category %s')%item.py_name,
+                            _('Delete User category %s')%item.py_name.replace('&', '&&'),
                             partial(self.context_menu_handler,
                                     action='delete_user_category', key=key))
                     self.context_menu.addSeparator()
+                # Add searches for temporary first letter nodes
+                if self._model.collapse_model == 'first letter' and \
+                        tag_item.temporary and not key.startswith('@'):
+                    self.context_menu.addSeparator()
+                    search_submenu = self.context_menu.addMenu(_('Search for'))
+                    search_submenu.setIcon(QIcon.ic('search.png'))
+                    search_submenu.addAction(self.search_icon,
+                            '%s'%display_name(tag_item.tag),
+                            partial(self.context_menu_handler, action='search',
+                                    search_state=TAG_SEARCH_STATES['mark_plus'],
+                                    index=index))
+                    search_submenu.addAction(self.search_icon,
+                            _('Everything but %s')%display_name(tag_item.tag),
+                            partial(self.context_menu_handler, action='search',
+                                    search_state=TAG_SEARCH_STATES['mark_minus'],
+                                    index=index))
                 # search by category. Some categories are not searchable, such
                 # as search and news
                 if item.tag.is_searchable:
                     if search_submenu is None:
-                        search_submenu = self.context_menu.addMenu(_('Search'))
+                        search_submenu = self.context_menu.addMenu(_('Search for'))
+                        search_submenu.setIcon(QIcon.ic('search.png'))
                         self.context_menu.addSeparator()
+                    else:
+                        search_submenu.addSeparator()
                     search_submenu.addAction(self.search_icon,
-                            _('Search for books in category %s')%category,
+                            _('Books in category %s')%category,
                             partial(self.context_menu_handler,
                                     action='search_category',
                                     index=self._model.createIndex(item.row(), 0, item),
                                     search_state=TAG_SEARCH_STATES['mark_plus']))
                     search_submenu.addAction(self.search_icon,
-                            _('Search for books not in category %s')%category,
+                            _('Books not in category %s')%category,
                             partial(self.context_menu_handler,
                                     action='search_category',
                                     index=self._model.createIndex(item.row(), 0, item),
@@ -867,15 +955,18 @@ class TagsView(QTreeView):  # {{{
                 if key in ['tags', 'publisher', 'series'] or (
                         fm['is_custom'] and fm['datatype'] != 'composite'):
                     if tag_item.type == TagTreeItem.CATEGORY and tag_item.temporary:
-                        self.context_menu.addAction(_('Manage %s')%category,
+                        ac = self.context_menu.addAction(_('Manage %s')%category,
                             partial(self.context_menu_handler, action='open_editor',
                                     category=tag_item.name,
                                     key=key, is_first_letter=True))
                     else:
-                        self.context_menu.addAction(_('Manage %s')%category,
+                        ac = self.context_menu.addAction(_('Manage %s')%category,
                             partial(self.context_menu_handler, action='open_editor',
                                     category=tag.original_name if tag else None,
                                     key=key))
+                    ic = self.model().category_custom_icons.get(key)
+                    if ic:
+                        ac.setIcon(QIcon.ic(ic))
                     if fm['datatype'] == 'enumeration':
                         self.context_menu.addAction(_('Edit permissible values for %s')%category,
                             partial(self.context_menu_handler, action='edit_enum',
@@ -883,34 +974,58 @@ class TagsView(QTreeView):  # {{{
                 elif key == 'authors':
                     if tag_item.type == TagTreeItem.CATEGORY:
                         if tag_item.temporary:
-                            self.context_menu.addAction(_('Manage %s')%category,
+                            ac = self.context_menu.addAction(_('Manage %s')%category,
                                 partial(self.context_menu_handler, action='edit_authors',
                                         index=tag_item.name, is_first_letter=True))
                         else:
-                            self.context_menu.addAction(_('Manage %s')%category,
+                            ac = self.context_menu.addAction(_('Manage %s')%category,
                                 partial(self.context_menu_handler, action='edit_authors'))
                     else:
-                        self.context_menu.addAction(_('Manage %s')%category,
+                        ac = self.context_menu.addAction(_('Manage %s')%category,
                             partial(self.context_menu_handler, action='edit_authors',
                                     index=tag.id))
+                    ic = self.model().category_custom_icons.get(key)
+                    if ic:
+                        ac.setIcon(QIcon.ic(ic))
                 elif key == 'search':
                     self.context_menu.addAction(_('Manage Saved searches'),
                         partial(self.context_menu_handler, action='manage_searches',
                                 category=tag.name if tag else None))
+                elif key == 'formats' and tag is not None:
+                    self.context_menu.addAction(_('Remove the {} format from selected books').format(tag.name), partial(
+                        self.context_menu_handler, action='remove_format', key=tag.name))
 
                 # Hide/Show/Restore categories
                 self.context_menu.addSeparator()
-                self.context_menu.addAction(_('Hide category %s') % category,
-                    partial(self.context_menu_handler, action='hide',
-                            category=key))
+                # Because of the strange way hierarchy works in user categories
+                # where child nodes actually exist we must limit hiding to top-
+                # level categories, which will hide that category and children
+                if not key.startswith('@') or '.' not in key:
+                    self.context_menu.addAction(_('Hide category %s') % category.replace('&', '&&'),
+                        partial(self.context_menu_handler, action='hide',
+                            category=key)).setIcon(QIcon.ic('minus.png'))
                 add_show_hidden_categories()
 
                 if tag is None:
-                    self.context_menu.addSeparator()
-                    self.context_menu.addAction(_('Change category icon'),
-                            partial(self.context_menu_handler, action='set_icon', key=key))
-                    self.context_menu.addAction(_('Restore default icon'),
-                            partial(self.context_menu_handler, action='clear_icon', key=key))
+                    cm = self.context_menu
+                    cm.addSeparator()
+                    sm = cm.addAction(_('Change {} category icon').format(category),
+                                      partial(self.context_menu_handler, action='set_icon',
+                                              key=key, category=category))
+                    sm.setIcon(QIcon.ic('icon_choose.png'))
+                    sm = cm.addAction(_('Restore {} category default icon').format(category),
+                                      partial(self.context_menu_handler, action='clear_icon',
+                                              key=key, category=category))
+                    sm.setIcon(QIcon.ic('edit-clear.png'))
+                    if key == 'search' and 'search' in self.db.new_api.pref('categories_using_hierarchy', ()):
+                        sm = cm.addAction(_('Change Saved searches folder icon'),
+                                          partial(self.context_menu_handler, action='set_icon',
+                                                  key='search_folder:', category=_('Saved searches folder')))
+                        sm.setIcon(QIcon.ic('icon_choose.png'))
+                        sm = cm.addAction(_('Restore Saved searches folder default icon'),
+                             partial(self.context_menu_handler, action='clear_icon',
+                                     key='search_folder:', category=_('Saved searches folder')))
+                        sm.setIcon(QIcon.ic('edit-clear.png'))
 
                 # Always show the User categories editor
                 self.context_menu.addSeparator()
@@ -930,7 +1045,23 @@ class TagsView(QTreeView):  # {{{
                 self.context_menu.addSeparator()
             add_show_hidden_categories()
 
+        # partioning. If partitioning is active, provide a way to turn it on or
+        # off for this category.
+        if gprefs['tags_browser_partition_method'] != 'disable' and key is not None:
+            m = self.context_menu
+            p = self.db.prefs.get('tag_browser_dont_collapse', gprefs['tag_browser_dont_collapse'])
+            if key in p:
+                a = m.addAction(_('Sub-categorize {}').format(category),
+                                partial(self.context_menu_handler, action='collapse_category',
+                                        category=category, key=key, extra=p))
+            else:
+                a = m.addAction(_("Don't sub-categorize {}").format(category),
+                                partial(self.context_menu_handler, action='dont_collapse_category',
+                                        category=category, key=key, extra=p))
+            a.setIcon(QIcon.ic('config.png'))
+        # Set the partitioning scheme
         m = self.context_menu.addMenu(_('Change sub-categorization scheme'))
+        m.setIcon(QIcon.ic('config.png'))
         da = m.addAction(_('Disable'),
             partial(self.context_menu_handler, action='categorization', category='disable'))
         fla = m.addAction(_('By first letter'),
@@ -991,6 +1122,20 @@ class TagsView(QTreeView):  # {{{
             m.addAction(self.minus_icon,
                         _("Collapse {0}").format(p[0]), partial(self.collapse_node, p[1]))
         m.addAction(self.minus_icon, _('Collapse all'), self.collapseAll)
+
+        # Ask plugins if they have any actions to add to the context menu
+        from calibre.gui2.ui import get_gui
+        first = True
+        for ac in get_gui().iactions.values():
+            try:
+                for context_action in ac.tag_browser_context_action(index):
+                    if first:
+                        self.context_menu.addSeparator()
+                        first = False
+                    self.context_menu.addAction(context_action)
+            except Exception:
+                import traceback
+                traceback.print_exc()
 
         if not self.context_menu.isEmpty():
             self.context_menu.popup(self.mapToGlobal(point))

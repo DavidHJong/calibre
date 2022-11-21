@@ -28,14 +28,15 @@ class CaravanMagazine(BasicNewsRecipe):
     no_stylesheets = True
 
     keep_only_tags = [
-            classes('post-title short-desc author-details cover'),
-            dict(itemprop='articleBody'),
+        classes('post-title short-desc author-details cover'),
+        dict(itemprop='articleBody'),
     ]
 
     remove_tags = [
         dict(name='meta'),
-        dict(attrs={'class': ['share-with']}),
+        dict(attrs={'class': ['share-with', 'img-wrap abs']}),
     ]
+    remove_attributes = ['style']
 
     def get_browser(self, *args, **kw):
         br = BasicNewsRecipe.get_browser(self, *args, **kw)
@@ -63,7 +64,7 @@ class CaravanMagazine(BasicNewsRecipe):
             raise ValueError('Login failed, check your username and password')
         return br
 
-    # To parse artice toc
+    # To parse article toc
     def parse_index(self):
         base_url = 'https://www.caravanmagazine.in/'
         soup = self.index_to_soup('{0}magazine'.format(base_url))
@@ -97,4 +98,6 @@ class CaravanMagazine(BasicNewsRecipe):
         for div in soup.findAll(itemprop='image'):
             for img in div.findAll('img'):
                 img['src'] = div['content']
+        for img in soup.findAll(attrs={'data-src': True}):
+            img['src'] = img['data-src']
         return soup

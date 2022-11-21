@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 '''
 Read meta information from eReader pdb files.
 '''
@@ -79,7 +76,7 @@ def set_metadata(stream, mi):
     if hr.compression not in (2, 10):
         return
 
-    # Create a metadata record for the file if one does not alreay exist
+    # Create a metadata record for the file if one does not already exist
     if not hr.has_metadata:
         sections += [b'', b'MeTaInFo\x00']
         last_data = len(sections) - 1
@@ -96,7 +93,7 @@ def set_metadata(stream, mi):
     # Merge the metadata into the file
     file_mi = get_metadata(stream, False)
     file_mi.smart_update(mi)
-    sections[hr.metadata_offset] = ('%s\x00%s\x00%s\x00%s\x00%s\x00' % (
+    sections[hr.metadata_offset] = ('{}\x00{}\x00{}\x00{}\x00{}\x00'.format(
         file_mi.title, authors_to_string(file_mi.authors), '', file_mi.publisher, file_mi.isbn)).encode('cp1252', 'replace')
 
     # Rebuild the PDB wrapper because the offsets have changed due to the

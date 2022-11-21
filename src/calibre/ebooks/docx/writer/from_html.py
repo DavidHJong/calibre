@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -18,7 +17,7 @@ from calibre.ebooks.docx.writer.lists import ListsManager
 from calibre.ebooks.oeb.stylizer import Stylizer as Sz, Style as St
 from calibre.ebooks.oeb.base import XPath, barename
 from calibre.utils.localization import lang_as_iso639_1
-from polyglot.builtins import unicode_type, string_or_bytes
+from polyglot.builtins import string_or_bytes
 
 
 def lang_for_tag(tag):
@@ -54,14 +53,15 @@ class Stylizer(Sz):
             return Style(element, self)
 
 
-class TextRun(object):
+class TextRun:
 
-    ws_pat = None
+    ws_pat = soft_hyphen_pat = None
 
     def __init__(self, namespace, style, first_html_parent, lang=None):
         self.first_html_parent = first_html_parent
         if self.ws_pat is None:
             TextRun.ws_pat = self.ws_pat = re.compile(r'\s+')
+            TextRun.soft_hyphen_pat = self.soft_hyphen_pat = re.compile('(\u00ad)')
         self.style = style
         self.texts = []
         self.link = None
@@ -98,21 +98,31 @@ class TextRun(object):
         if len(rpr) > 0:
             r.append(rpr)
 
+        def add_text(text, preserve_whitespace):
+            t = makeelement(r, 'w:t')
+            t.text = text
+            if preserve_whitespace:
+                t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+
         for text, preserve_whitespace, bookmark in self.texts:
             if bookmark is not None:
                 bid = links_manager.bookmark_id
-                makeelement(r, 'w:bookmarkStart', w_id=unicode_type(bid), w_name=bookmark)
+                makeelement(r, 'w:bookmarkStart', w_id=str(bid), w_name=bookmark)
             if text is None:
                 makeelement(r, 'w:br', w_clear=preserve_whitespace)
             elif hasattr(text, 'xpath'):
                 r.append(text)
             else:
-                t = makeelement(r, 'w:t')
-                t.text = text or ''
-                if preserve_whitespace:
-                    t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+                if text:
+                    for x in self.soft_hyphen_pat.split(text):
+                        if x == '\u00ad':
+                            makeelement(r, 'w:softHyphen')
+                        elif x:
+                            add_text(x, preserve_whitespace)
+                else:
+                    add_text('', preserve_whitespace)
             if bookmark is not None:
-                makeelement(r, 'w:bookmarkEnd', w_id=unicode_type(bid))
+                makeelement(r, 'w:bookmarkEnd', w_id=str(bid))
 
     def __repr__(self):
         return repr(self.texts)
@@ -128,12 +138,12 @@ class TextRun(object):
     def style_weight(self):
         ans = 0
         for text, preserve_whitespace, bookmark in self.texts:
-            if isinstance(text, unicode_type):
+            if isinstance(text, str):
                 ans += len(text)
         return ans
 
 
-class Block(object):
+class Block:
 
     def __init__(self, namespace, styles_manager, links_manager, html_block, style, is_table_cell=False, float_spec=None, is_list_item=False, parent_bg=None):
         self.force_not_empty = False
@@ -208,7 +218,7 @@ class Block(object):
         p = makeelement(body, 'w:p')
         end_bookmarks = []
         for bmark in self.bookmarks:
-            end_bookmarks.append(unicode_type(self.links_manager.bookmark_id))
+            end_bookmarks.append(str(self.links_manager.bookmark_id))
             makeelement(p, 'w:bookmarkStart', w_id=end_bookmarks[-1], w_name=bmark)
         if self.block_lang:
             rpr = makeelement(p, 'w:rPr')
@@ -221,8 +231,8 @@ class Block(object):
             self.float_spec.serialize(self, ppr)
         if self.numbering_id is not None:
             numpr = makeelement(ppr, 'w:numPr')
-            makeelement(numpr, 'w:ilvl', w_val=unicode_type(self.numbering_id[1]))
-            makeelement(numpr, 'w:numId', w_val=unicode_type(self.numbering_id[0]))
+            makeelement(numpr, 'w:ilvl', w_val=str(self.numbering_id[1]))
+            makeelement(numpr, 'w:numId', w_val=str(self.numbering_id[0]))
         if self.linked_style is not None:
             makeelement(ppr, 'w:pStyle', w_val=self.linked_style.id)
         elif self.style.id:
@@ -251,7 +261,7 @@ class Block(object):
         return True
 
 
-class Blocks(object):
+class Blocks:
 
     def __init__(self, namespace, styles_manager, links_manager):
         self.top_bookmark = None
@@ -406,7 +416,7 @@ class Blocks(object):
         return 'Block(%r)' % self.runs
 
 
-class Convert(object):
+class Convert:
 
     # Word does not apply default styling to hyperlinks, so we ensure they get
     # default styling (the conversion pipeline does not apply any styling to
@@ -442,8 +452,8 @@ class Convert(object):
         if self.add_toc:
             self.links_manager.process_toc_links(self.oeb)
 
-        if self.add_cover and self.oeb.metadata.cover and unicode_type(self.oeb.metadata.cover[0]) in self.oeb.manifest.ids:
-            cover_id = unicode_type(self.oeb.metadata.cover[0])
+        if self.add_cover and self.oeb.metadata.cover and str(self.oeb.metadata.cover[0]) in self.oeb.manifest.ids:
+            cover_id = str(self.oeb.metadata.cover[0])
             item = self.oeb.manifest.ids[cover_id]
             self.cover_img = self.images_manager.read_image(item.href)
 
@@ -576,7 +586,7 @@ class Convert(object):
         else:
             text = html_tag.text
             is_list_item = tagname == 'li'
-            has_sublist = is_list_item and len(html_tag) and barename(html_tag[0].tag) in ('ul', 'ol') and len(html_tag[0])
+            has_sublist = is_list_item and len(html_tag) and isinstance(html_tag[0].tag, str) and barename(html_tag[0].tag) in ('ul', 'ol') and len(html_tag[0])
             if text and has_sublist and not text.strip():
                 text = ''  # whitespace only, ignore
             if text:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -11,7 +10,7 @@ from calibre.gui2 import gui_prefs
 from calibre.gui2.complete2 import EditWithComplete
 from calibre.utils.localization import lang_map_for_ui
 from calibre.utils.icu import sort_key, lower
-from polyglot.builtins import iteritems, itervalues, unicode_type
+from polyglot.builtins import iteritems, itervalues
 
 
 class LanguagesEdit(EditWithComplete):
@@ -54,7 +53,7 @@ class LanguagesEdit(EditWithComplete):
 
     @property
     def vals(self):
-        raw = unicode_type(self.lineEdit().text())
+        raw = str(self.lineEdit().text())
         for k, v in iteritems(self.comma_map):
             raw = raw.replace(k, v)
         parts = [x.strip() for x in raw.split(',')]

@@ -1,6 +1,3 @@
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
@@ -10,7 +7,7 @@ import shutil, re, os
 from calibre.ebooks.oeb.base import OPF, OEB_DOCS, XPath, XLINK, xml2text
 from calibre.ebooks.oeb.polish.replace import replace_links, get_recommended_folders
 from calibre.utils.imghdr import identify
-from polyglot.builtins import iteritems, unicode_type
+from polyglot.builtins import iteritems
 
 
 def set_azw3_cover(container, cover_path, report, options=None):
@@ -384,8 +381,8 @@ def create_epub_cover(container, cover_path, existing_image, options=None):
             ar = 'xMidYMid meet' if keep_aspect else 'none'
             templ = CoverManager.SVG_TEMPLATE.replace('__ar__', ar)
             templ = templ.replace('__viewbox__', '0 0 %d %d'%(width, height))
-            templ = templ.replace('__width__', unicode_type(width))
-            templ = templ.replace('__height__', unicode_type(height))
+            templ = templ.replace('__width__', str(width))
+            templ = templ.replace('__height__', str(height))
     folder = recommended_folders[tname]
     if folder:
         tname = folder + '/' + tname
@@ -501,7 +498,7 @@ def set_epub_cover(container, cover_path, report, options=None, image_callback=N
         if wrapped_image is not None:
             # The cover page is a simple wrapper around a single cover image,
             # we can remove it safely.
-            log('Existing cover page {} is a simple wrapper, removing it'.format(cover_page))
+            log(f'Existing cover page {cover_page} is a simple wrapper, removing it')
             container.remove_item(cover_page)
             if wrapped_image != existing_image:
                 if image_callback is not None and not image_callback_called:

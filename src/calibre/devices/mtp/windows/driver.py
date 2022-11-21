@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 
 
 __license__   = 'GPL v3'
@@ -8,7 +7,7 @@ __docformat__ = 'restructuredtext en'
 
 import time, threading, traceback
 from functools import wraps, partial
-from polyglot.builtins import iteritems, itervalues, unicode_type, zip
+from polyglot.builtins import iteritems, itervalues
 from itertools import chain
 
 from calibre import as_unicode, prints, force_unicode
@@ -268,7 +267,7 @@ class MTP_DEVICE(MTPDeviceBase):
                         break
                 storage = {'id':storage_id, 'size':capacity, 'name':name,
                         'is_folder':True, 'can_delete':False, 'is_system':True}
-                self._currently_getting_sid = unicode_type(storage_id)
+                self._currently_getting_sid = str(storage_id)
                 id_map = self.dev.get_filesystem(storage_id, partial(
                         self._filesystem_callback, {}))
                 for x in itervalues(id_map):

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -38,7 +37,7 @@ class PrintDialog(Dialog):
     def __init__(self, book_title, parent=None, prefs=vprefs):
         self.book_title = book_title
         self.default_file_name = sanitize_file_name(book_title[:75] + '.pdf')
-        self.paper_size_map = {a:getattr(QPageSize, a.capitalize()) for a in PAPER_SIZES}
+        self.paper_size_map = {a:getattr(QPageSize.PageSizeId, a.capitalize()) for a in PAPER_SIZES}
         Dialog.__init__(self, _('Print to PDF'), 'print-to-pdf', prefs=prefs, parent=parent)
 
     def setup_ui(self):
@@ -56,7 +55,7 @@ class PrintDialog(Dialog):
             val = os.path.dirname(val)
         f.setText(os.path.abspath(os.path.join(val, self.default_file_name)))
         self.browse_button = b = QToolButton(self)
-        b.setIcon(QIcon(I('document_open.png'))), b.setToolTip(_('Choose location for PDF file'))
+        b.setIcon(QIcon.ic('document_open.png')), b.setToolTip(_('Choose location for PDF file'))
         b.clicked.connect(self.choose_file)
         h.addWidget(f), h.addWidget(b)
         f.setMinimumWidth(350)
@@ -156,7 +155,7 @@ class DoPrint(Thread):
                     self.log = f.read().decode('utf-8', 'replace')
             try:
                 os.remove(f.name)
-            except EnvironmentError:
+            except OSError:
                 pass
         except Exception:
             import traceback
@@ -170,7 +169,7 @@ def do_print():
     ext = data['input'].lower().rpartition('.')[-1]
     input_plugin = plugin_for_input_format(ext)
     if input_plugin is None:
-        raise ValueError('Not a supported file type: {}'.format(ext.upper()))
+        raise ValueError(f'Not a supported file type: {ext.upper()}')
     args = ['ebook-convert', data['input'], data['output'], '--paper-size', data['paper_size'], '--pdf-add-toc',
             '--disable-remove-fake-margins', '--chapter-mark', 'none', '-vv']
     if input_plugin.is_image_collection:
@@ -192,7 +191,7 @@ class Printing(QProgressDialog):
         QProgressDialog.__init__(self, _('Printing, this will take a while, please wait...'), _('&Cancel'), 0, 0, parent)
         self.show_file = show_file
         self.setWindowTitle(_('Printing...'))
-        self.setWindowIcon(QIcon(I('print.png')))
+        self.setWindowIcon(QIcon.ic('print.png'))
         self.thread = thread
         self.timer = t = QTimer(self)
         t.timeout.connect(self.check)
@@ -215,7 +214,7 @@ class Printing(QProgressDialog):
             try:
                 if self.thread.worker.poll() is None:
                     self.thread.worker.kill()
-            except EnvironmentError:
+            except OSError:
                 import traceback
                 traceback.print_exc()
         self.timer.stop()
@@ -225,12 +224,12 @@ class Printing(QProgressDialog):
 def print_book(path_to_book, parent=None, book_title=None):
     book_title = book_title or os.path.splitext(os.path.basename(path_to_book))[0]
     d = PrintDialog(book_title, parent)
-    if d.exec_() == QDialog.DialogCode.Accepted:
+    if d.exec() == QDialog.DialogCode.Accepted:
         data = d.data
         data['input'] = path_to_book
         t = DoPrint(data)
         t.start()
-        Printing(t, data['show_file'], parent).exec_()
+        Printing(t, data['show_file'], parent).exec()
 
 
 if __name__ == '__main__':

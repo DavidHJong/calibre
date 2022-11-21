@@ -81,6 +81,7 @@ class DeleteBook:  # {{{
         set_css(container, background_color=get_color('window-background'))
         container.appendChild(E.div(
             style='display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%',
+            tabindex='0',
             E.div(style='margin:1ex 1em; max-width: 80%',
                 E.h2(self.question),
                 E.div(style='display:flex; justify-content:flex-end; margin-top:1rem',
@@ -88,8 +89,19 @@ class DeleteBook:  # {{{
                     E.span('\xa0'),
                     create_button(_('Cancel'), action=self.cancel),
                 )
-            )
+            ),
+            onkeyup=def(ev):
+                if ev.key is 'Escape':
+                    ev.stopPropagation(), ev.preventDefault()
+                    self.cancel()
+                elif ev.key is 'Enter' or ev.key is 'Return':
+                    ev.stopPropagation(), ev.preventDefault()
+                    self.delete_book()
         ))
+        window.setTimeout(self.focus_me, 0)
+
+    def focus_me(self):
+        document.getElementById(self.container_id).lastChild.focus()
 
     def show_working(self):
         container = document.getElementById(self.container_id)
@@ -220,14 +232,14 @@ add_extra_css(def():
 )
 # }}}
 
-def simple_overlay_title(title, overlay, container):
+def simple_overlay_title(title, overlay, container, close_action):
     container.style.backgroundColor = get_color('window-background')
     def action():
         event = this
         event.stopPropagation()
         overlay.hide_current_panel(event)
 
-    create_top_bar(container, title=title, icon='close', action=action)
+    create_top_bar(container, title=title, icon='close', action=close_action or action)
 
 
 class MainOverlay:  # {{{
@@ -419,9 +431,17 @@ class MainOverlay:  # {{{
                   style='position: fixed; width: 100%; bottom: 0; display: flex; justify-content: space-between; align-items: center;'
                         'user-select: none; background-color: {}'.format(get_color('window-background')),
                 E.div(
-                    style='display: flex; align-items: center; cursor: pointer; padding: 0.5ex 1rem', class_='main-overlay-button',
-                    title=_('Close the viewer controls'),
-                    svgicon('close', icon_size, icon_size), '\xa0', _('Close')
+                    style='display: flex; justify-content: space-between; align-items: center;',
+                    E.div(
+                        style='display: flex; align-items: center; cursor: pointer; padding: 0.5ex 1rem', class_='main-overlay-button',
+                        title=_('Close the viewer controls'),
+                        svgicon('close', icon_size, icon_size), '\xa0', _('Close')
+                    ),
+                    E.div(
+                        style='display: flex; align-items: center; cursor: pointer; padding: 0.5ex 1rem', class_='main-overlay-button',
+                        svgicon('help', icon_size, icon_size), '\xa0', _('Help'), onclick=def(ev):
+                            ui_operations.show_help('viewer')
+                    )
                 ),
                 E.div(style='padding: 0.5ex 1rem', '\xa0'), E.div(style='padding: 0.5ex 1rem', '\xa0'),
             ),
@@ -479,6 +499,8 @@ class TOCOverlay(SimpleOverlay): # {{{
         self.title = title or _('Table of Contents')
 
     def show(self, container):
+        container.appendChild(E.div())
+        container = container.firstChild
         simple_overlay_title(self.title, self.overlay, container)
         self.create_func(self.overlay.view.book, container, self.handle_activate)
 
@@ -500,13 +522,7 @@ class WordActionsOverlay:  # {{{
         pass  # Dont allow panel to be closed by a click
 
     def show(self, container):
-        container.style.backgroundColor = get_color('window-background')
-        container.appendChild(E.div(
-            style='padding: 1ex 1em; border-bottom: solid 1px currentColor; display:flex; justify-content: space-between',
-            E.h2(_('Lookup: {}').format(self.word)),
-                E.div(svgicon('close'), style='cursor:pointer', onclick=def(event):event.preventDefault(), event.stopPropagation(), self.overlay.hide_current_panel(event);, class_='simple-link'),
-            ))
-        container.appendChild(E.div())
+        simple_overlay_title(_('Lookup: {}').format(self.word), self.overlay, container)
         create_word_actions_panel(container, self.word, self.overlay.hide)
 # }}}
 
@@ -563,21 +579,14 @@ class OpenBook: # {{{
         pass  # Dont allow panel to be closed by a click
 
     def show(self, container):
-        container.style.backgroundColor = get_color('window-background')
-        container.appendChild(E.div(
-            style='padding: 1ex 1em; border-bottom: solid 1px currentColor; display:flex; justify-content: flex-start',
-                E.div(
-                    svgicon('close'), style=f'cursor:pointer',
-                    onclick=def(event):
-                        event.preventDefault(), event.stopPropagation()
-                        if self.closeable:
-                            self.overlay.hide_current_panel(event)
-                        else:
-                            ui_operations.quit()
-                    ,
-                    class_='simple-link'),
-                E.h2(_('Open a book'), style='margin-left: 1rem'),
-            ))
+        simple_overlay_title(_('Open a book'), self.overlay, container, def ():
+            ev = this
+            ev.stopPropagation(), ev.preventDefault()
+            if self.closeable:
+                self.overlay.hide_current_panel(ev)
+            else:
+                ui_operations.quit()
+        )
         create_open_book(container, self.overlay.view?.book)
 # }}}
 
@@ -768,7 +777,7 @@ class Overlay:
 
                 container.lastChild.appendChild(E.div(
                     style='text-align: right',
-                    E.a(_('Edit metadata of book in library'), class_='blue-link', onclick=def():
+                    E.a(_('Edit the metadata for this book in the library'), class_='blue-link', onclick=def():
                         container = document.getElementById(container_id)
                         clear(container)
                         container.appendChild(E.iframe(

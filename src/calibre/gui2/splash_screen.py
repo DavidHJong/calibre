@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -10,7 +9,6 @@ from qt.core import (
 
 from calibre.constants import __appname__, numeric_version
 from calibre.utils.monotonic import monotonic
-from polyglot.builtins import unicode_type
 
 
 class SplashScreen(QSplashScreen):
@@ -36,7 +34,7 @@ class SplashScreen(QSplashScreen):
         f.setPixelSize(self.total_height)
         f.setItalic(True), f.setBold(True)
         f = QFontMetrics(f)
-        self.num_ch = unicode_type(max(3, numeric_version[0]))
+        self.num_ch = str(max(3, numeric_version[0]))
         self.footer_font = f = QFont()
         f.setPointSize(self.FOOTER_SIZE)
         f.setItalic(True)
@@ -115,7 +113,7 @@ class SplashScreen(QSplashScreen):
         if not self.develop:
             return QSplashScreen.keyPressEvent(self, ev)
         ev.accept()
-        QApplication.instance().quit()
+        QApplication.instance().exit()
 
 
 def main():
@@ -124,7 +122,7 @@ def main():
     spl = SplashScreen(develop=True)
     spl.show()
     spl.show_message('Testing the splash screen message...')
-    app.exec_()
+    app.exec()
 
 
 if __name__ == '__main__':

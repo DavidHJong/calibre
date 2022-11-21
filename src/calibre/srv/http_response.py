@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -9,6 +8,7 @@ import errno
 import hashlib
 import os
 import struct
+import time
 import uuid
 from collections import namedtuple
 from functools import wraps
@@ -22,15 +22,14 @@ from calibre.srv.errors import HTTPSimpleResponse
 from calibre.srv.http_request import HTTPRequest, read_headers
 from calibre.srv.loop import WRITE
 from calibre.srv.utils import (
-    HTTP1, HTTP11, Cookie, MultiDict, fast_now_strftime, get_translator_for_lang,
+    HTTP1, HTTP11, Cookie, MultiDict, get_translator_for_lang,
     http_date, socket_errors_socket_closed, sort_q_values
 )
 from calibre.utils.monotonic import monotonic
 from calibre.utils.speedups import ReadOnlyFileBuffer
 from polyglot import http_client, reprlib
 from polyglot.builtins import (
-    error_message, iteritems, itervalues, map, reraise, string_or_bytes,
-    unicode_type
+    error_message, iteritems, itervalues, reraise, string_or_bytes
 )
 
 Range = namedtuple('Range', 'start stop size')
@@ -131,7 +130,7 @@ def get_ranges(headervalue, content_length):  # {{{
         return None
 
     for brange in byteranges.split(","):
-        start, stop = [x.strip() for x in brange.split("-", 1)]
+        start, stop = (x.strip() for x in brange.split("-", 1))
         if start:
             if not stop:
                 stop = content_length - 1
@@ -209,7 +208,7 @@ def get_range_parts(ranges, content_type, content_length):  # {{{
 # }}}
 
 
-class ETaggedFile(object):  # {{{
+class ETaggedFile:  # {{{
 
     def __init__(self, output, etag):
         self.output, self.etag = output, etag
@@ -219,7 +218,7 @@ class ETaggedFile(object):  # {{{
 # }}}
 
 
-class RequestData(object):  # {{{
+class RequestData:  # {{{
 
     cookies = {}
     username = None
@@ -255,7 +254,8 @@ class RequestData(object):  # {{{
 
     def filesystem_file_with_custom_etag(self, output, *etag_parts):
         etag = hashlib.sha1()
-        tuple(map(lambda x:etag.update(unicode_type(x).encode('utf-8')), etag_parts))
+        for i in etag_parts:
+            etag.update(str(i).encode('utf-8'))
         return ETaggedFile(output, etag.hexdigest())
 
     def filesystem_file_with_constant_etag(self, output, etag_as_hexencoded_string):
@@ -301,7 +301,7 @@ class RequestData(object):  # {{{
 # }}}
 
 
-class ReadableOutput(object):
+class ReadableOutput:
 
     def __init__(self, output, etag=None, content_length=None):
         self.src_file = output
@@ -321,8 +321,8 @@ def filesystem_file_output(output, outheaders, stat_result):
     if etag is None:
         oname = output.name or ''
         if not isinstance(oname, string_or_bytes):
-            oname = unicode_type(oname)
-        etag = hashlib.sha1((unicode_type(stat_result.st_mtime) + force_unicode(oname)).encode('utf-8')).hexdigest()
+            oname = str(oname)
+        etag = hashlib.sha1((str(stat_result.st_mtime) + force_unicode(oname)).encode('utf-8')).hexdigest()
     else:
         output = output.output
     etag = '"%s"' % etag
@@ -345,7 +345,7 @@ def dynamic_output(output, outheaders, etag=None):
     return ans
 
 
-class ETaggedDynamicOutput(object):
+class ETaggedDynamicOutput:
 
     def __init__(self, func, etag):
         self.func, self.etag = func, etag
@@ -354,7 +354,7 @@ class ETaggedDynamicOutput(object):
         return self.func()
 
 
-class GeneratedOutput(object):
+class GeneratedOutput:
 
     def __init__(self, output, etag=None):
         self.output = output
@@ -363,10 +363,10 @@ class GeneratedOutput(object):
         self.accept_ranges = False
 
 
-class StaticOutput(object):
+class StaticOutput:
 
     def __init__(self, data):
-        if isinstance(data, unicode_type):
+        if isinstance(data, str):
             data = data.encode('utf-8')
         self.data = data
         self.etag = '"%s"' % hashlib.sha1(data).hexdigest()
@@ -403,7 +403,7 @@ class HTTPConnection(HTTPRequest):
                 # Something bad happened, was the file modified on disk by
                 # another process?
                 self.use_sendfile = self.ready = False
-                raise IOError('sendfile() failed to write any bytes to the socket')
+                raise OSError('sendfile() failed to write any bytes to the socket')
         else:
             data = buf.read(min(limit, self.send_bufsize))
             sent = self.send(data)
@@ -432,7 +432,7 @@ class HTTPConnection(HTTPRequest):
             buf.append("Connection: close")
         if extra_headers is not None:
             for h, v in iteritems(extra_headers):
-                buf.append('%s: %s' % (h, v))
+                buf.append(f'{h}: {v}')
         buf.append('')
         buf = [(x + '\r\n').encode('ascii') for x in buf]
         if self.method != 'HEAD':
@@ -526,7 +526,7 @@ class HTTPConnection(HTTPRequest):
 
         buf = [HTTP11 + (' %d ' % data.status_code) + http_client.responses[data.status_code]]
         for header, value in sorted(iteritems(outheaders), key=itemgetter(0)):
-            buf.append('%s: %s' % (header, value))
+            buf.append(f'{header}: {value}')
         for morsel in itervalues(data.outcookie):
             morsel['version'] = '1'
             x = morsel.output()
@@ -550,9 +550,13 @@ class HTTPConnection(HTTPRequest):
         ff = self.forwarded_for
         if ff:
             ff = '[%s] ' % ff
-        line = '%s port-%s %s%s %s "%s" %s %s' % (
+        try:
+            ts = time.strftime('%d/%b/%Y:%H:%M:%S %z')
+        except Exception:
+            ts = 'strftime() failed'
+        line = '{} port-{} {}{} {} "{}" {} {}'.format(
             self.remote_addr, self.remote_port, ff or '', username or '-',
-            fast_now_strftime('%d/%b/%Y:%H:%M:%S %z'),
+            ts,
             force_unicode(self.request_line or '', 'utf-8'),
             status_code, ('-' if response_size is None else response_size))
         self.access_log(line)
@@ -659,7 +663,7 @@ class HTTPConnection(HTTPRequest):
             if 'Content-Type' not in outheaders:
                 output_name = output.name
                 if not isinstance(output_name, string_or_bytes):
-                    output_name = unicode_type(output_name)
+                    output_name = str(output_name)
                 mt = guess_type(output_name)[0]
                 if mt:
                     if mt in {'text/plain', 'text/html', 'application/javascript', 'text/css'}:

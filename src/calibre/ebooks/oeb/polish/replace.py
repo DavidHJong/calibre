@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 
 
 __license__   = 'GPL v3'
@@ -7,7 +6,7 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import codecs, shutil, os, posixpath
-from polyglot.builtins import iteritems, itervalues, map
+from polyglot.builtins import iteritems, itervalues
 from functools import partial
 from collections import Counter, defaultdict
 
@@ -19,7 +18,7 @@ from calibre.ebooks.oeb.polish.utils import extract
 from polyglot.urllib import urlparse, urlunparse
 
 
-class LinkReplacer(object):
+class LinkReplacer:
 
     def __init__(self, base, container, link_map, frag_map):
         self.base = base
@@ -52,7 +51,7 @@ class LinkReplacer(object):
         return href
 
 
-class IdReplacer(object):
+class IdReplacer:
 
     def __init__(self, base, container, id_map):
         self.base, self.container, self.replaced = base, container, False
@@ -82,7 +81,7 @@ class IdReplacer(object):
         return href
 
 
-class LinkRebaser(object):
+class LinkRebaser:
 
     def __init__(self, container, old_name, new_name):
         self.old_name, self.new_name = old_name, new_name
@@ -230,8 +229,7 @@ def replace_file(container, name, path, basename, force_mt=None):
 
 
 def mt_to_category(container, mt):
-    from calibre.ebooks.oeb.polish.utils import guess_type
-    from calibre.ebooks.oeb.polish.container import OEB_FONTS
+    from calibre.ebooks.oeb.polish.utils import guess_type, OEB_FONTS
     from calibre.ebooks.oeb.base import OEB_DOCS, OEB_STYLES
     if mt in OEB_DOCS:
         category = 'text'
@@ -273,7 +271,7 @@ def normalize_case(container, val):
     def safe_listdir(x):
         try:
             return os.listdir(x)
-        except EnvironmentError:
+        except OSError:
             return ()
 
     parts = val.split('/')
@@ -384,7 +382,8 @@ def remove_links_to(container, predicate):
             removed = remove_links_in_sheet(partial(container.href_to_name, base=name), container.parsed(name), predicate)
         if removed:
             changed.add(name)
-    tuple(map(container.dirty, changed))
+    for i in changed:
+        container.dirty(i)
     return changed
 
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -12,7 +11,7 @@ from functools import partial
 from calibre.utils.config import prefs
 from calibre.gui2 import error_dialog, Dispatcher, choose_dir
 from calibre.gui2.actions import InterfaceAction
-from polyglot.builtins import itervalues, map
+from polyglot.builtins import itervalues
 
 
 class SaveToDiskAction(InterfaceAction):

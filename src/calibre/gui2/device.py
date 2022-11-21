@@ -1,5 +1,3 @@
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
@@ -8,9 +6,9 @@ import os, traceback, time, io, re, sys, weakref
 from threading import Thread, Event
 
 from qt.core import (
-    QMenu, QAction, QActionGroup, QIcon, Qt, pyqtSignal, QDialog,
-    QObject, QVBoxLayout, QDialogButtonBox, QCursor, QCoreApplication,
-    QApplication, QEventLoop, QTimer)
+    QMenu, QAction, QActionGroup, QIcon, pyqtSignal, QDialog,
+    QObject, QVBoxLayout, QDialogButtonBox, QCoreApplication,
+    QEventLoop, QTimer)
 
 from calibre.customize.ui import (available_input_formats, available_output_formats,
     device_plugins, disabled_device_plugins)
@@ -24,6 +22,7 @@ from calibre.devices.scanner import DeviceScanner
 from calibre.gui2 import (config, error_dialog, Dispatcher, dynamic,
         warning_dialog, info_dialog, choose_dir, FunctionDispatcher,
         show_restart_warning, gprefs, question_dialog)
+from calibre.gui2.widgets import BusyCursor
 from calibre.ebooks.metadata import authors_to_string
 from calibre import preferred_encoding, prints, force_unicode, as_unicode, sanitize_file_name
 from calibre.utils.filenames import ascii_filename
@@ -35,7 +34,7 @@ from calibre.utils.config import tweaks, device_prefs
 from calibre.utils.img import scale_image
 from calibre.library.save_to_disk import find_plugboard
 from calibre.ptempfile import PersistentTemporaryFile, force_unicode as filename_to_unicode
-from polyglot.builtins import unicode_type, string_or_unicode
+from polyglot.builtins import string_or_unicode
 from polyglot import queue
 # }}}
 
@@ -107,7 +106,7 @@ class DeviceJob(BaseJob):  # {{{
             call_job_done = True
         self._aborted = True
         self.failed = True
-        self._details = unicode_type(err)
+        self._details = str(err)
         self.exception = err
         if call_job_done:
             self.job_done()
@@ -125,13 +124,35 @@ def device_name_for_plugboards(device_class):
     return device_class.__class__.__name__
 
 
-class BusyCursor(object):
+def convert_open_popup(opm, skip_key):
+    class OPM(OpenFeedback):
 
-    def __enter__(self):
-        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        def __init__(self, opm):
+            super().__init__('placeholder')
+            self.opm = opm
+            self.skip_key = skip_key
 
-    def __exit__(self, *args):
-        QApplication.restoreOverrideCursor()
+        def custom_dialog(self, parent):
+            from calibre.gui2.dialogs.message_box import MessageBox
+
+            class M(MessageBox):
+                def on_cd_finished(s):
+                    gprefs.set(self.skip_key, not s.toggle_checkbox.isChecked())
+            m = M({
+                'info': MessageBox.INFO, 'information': MessageBox.INFO,
+                'warn': MessageBox.WARNING, 'warning': MessageBox.WARNING,
+                }[self.opm.level], self.opm.title, self.opm.message,
+                parent=parent
+            )
+            tc = m.toggle_checkbox
+            tc.setVisible(True)
+            tc.setText(_('Show this message again'))
+            tc.setChecked(not self.opm.skip_dialog_skip_precheck)
+            m.resize_needed.emit()
+            m.finished.connect(m.on_cd_finished)
+            return m
+
+    return OPM(opm)
 
 
 class DeviceManager(Thread):  # {{{
@@ -142,8 +163,7 @@ class DeviceManager(Thread):  # {{{
         '''
         :sleep_time: Time to sleep between device probes in secs
         '''
-        Thread.__init__(self)
-        self.setDaemon(True)
+        Thread.__init__(self, name='DeviceManager', daemon=True)
         # [Device driver, Showing in GUI, Ejected]
         self.devices        = list(device_plugins())
         self.disabled_device_plugins = list(disabled_device_plugins())
@@ -194,6 +214,11 @@ class DeviceManager(Thread):  # {{{
         for dev, detected_device in connected_devices:
             if dev.OPEN_FEEDBACK_MESSAGE is not None:
                 self.open_feedback_slot(dev.OPEN_FEEDBACK_MESSAGE)
+            opm = dev.get_open_popup_message()
+            if opm is not None:
+                skip_key = f'do_not_show_device_open_popup_message_{dev.__class__.__name__}'
+                if not gprefs.get(skip_key, False):
+                    self.open_feedback_msg(dev.get_gui_name(), convert_open_popup(opm, skip_key))
             try:
                 dev.reset(detected_device=detected_device,
                     report_progress=self.report_progress)
@@ -209,7 +234,7 @@ class DeviceManager(Thread):  # {{{
                 tb = traceback.format_exc()
                 if DEBUG or tb not in self.reported_errors:
                     self.reported_errors.add(tb)
-                    prints('Unable to open device', unicode_type(dev))
+                    prints('Unable to open device', str(dev))
                     prints(tb)
                 continue
             self.after_device_connect(dev, device_kind)
@@ -282,7 +307,7 @@ class DeviceManager(Thread):  # {{{
                 if not connected:
                     if DEBUG:
                         # Allow the device subsystem to output debugging info about
-                        # why it thinks the device is not connected. Used, for e.g.
+                        # why it thinks the device is not connected. Used, e.g.
                         # in the can_handle() method of the T1 driver
                         self.scanner.is_device_connected(self.connected_device,
                                 only_presence=True, debug=True)
@@ -566,7 +591,7 @@ class DeviceManager(Thread):  # {{{
             self.connected_device.set_plugboards(plugboards, find_plugboard)
         if metadata and files and len(metadata) == len(files):
             for f, mi in zip(files, metadata):
-                if isinstance(f, unicode_type):
+                if isinstance(f, str):
                     ext = f.rpartition('.')[-1].lower()
                     cpb = find_plugboard(
                             device_name_for_plugboards(self.connected_device),
@@ -703,7 +728,7 @@ class DeviceAction(QAction):  # {{{
     a_s = pyqtSignal(object)
 
     def __init__(self, dest, delete, specific, icon_path, text, parent=None):
-        QAction.__init__(self, QIcon(icon_path), text, parent)
+        QAction.__init__(self, QIcon.ic(icon_path), text, parent)
         self.dest = dest
         self.delete = delete
         self.specific = specific
@@ -731,32 +756,32 @@ class DeviceMenu(QMenu):  # {{{
         self._memory = []
 
         self.set_default_menu = QMenu(_('Set default send to device action'))
-        self.set_default_menu.setIcon(QIcon(I('config.png')))
+        self.set_default_menu.setIcon(QIcon.ic('config.png'))
 
         basic_actions = [
-                ('main:', False, False,  I('reader.png'),
+                ('main:', False, False,  'reader.png',
                     _('Send to main memory')),
-                ('carda:0', False, False, I('sd.png'),
+                ('carda:0', False, False, 'sd.png',
                     _('Send to storage card A')),
-                ('cardb:0', False, False, I('sd.png'),
+                ('cardb:0', False, False, 'sd.png',
                     _('Send to storage card B')),
         ]
 
         delete_actions = [
-                ('main:', True, False,   I('reader.png'),
+                ('main:', True, False,   'reader.png',
                     _('Main memory')),
-                ('carda:0', True, False,  I('sd.png'),
+                ('carda:0', True, False,  'sd.png',
                     _('Storage card A')),
-                ('cardb:0', True, False,  I('sd.png'),
+                ('cardb:0', True, False,  'sd.png',
                     _('Storage card B')),
         ]
 
         specific_actions = [
-                ('main:', False, True,  I('reader.png'),
+                ('main:', False, True,  'reader.png',
                     _('Main memory')),
-                ('carda:0', False, True, I('sd.png'),
+                ('carda:0', False, True, 'sd.png',
                     _('Storage card A')),
-                ('cardb:0', False, True, I('sd.png'),
+                ('cardb:0', False, True, 'sd.png',
                     _('Storage card B')),
         ]
 
@@ -809,7 +834,7 @@ class DeviceMenu(QMenu):  # {{{
         self.addMenu(later_menus[0])
         self.addSeparator()
 
-        mitem = self.addAction(QIcon(I('eject.png')), _('Eject device'))
+        mitem = self.addAction(QIcon.ic('eject.png'), _('Eject device'))
         mitem.setEnabled(False)
         connect_lambda(mitem.triggered, self, lambda self, x: self.disconnect_mounted_device.emit())
         self.disconnect_mounted_device_action = mitem
@@ -890,7 +915,7 @@ device_signals = DeviceSignals()
 # }}}
 
 
-class DeviceMixin(object):  # {{{
+class DeviceMixin:  # {{{
 
     def __init__(self, *args, **kwargs):
         pass
@@ -898,7 +923,7 @@ class DeviceMixin(object):  # {{{
     def init_device_mixin(self):
         self.device_error_dialog = error_dialog(self, _('Error'),
                 _('Error communicating with device'), ' ')
-        self.device_error_dialog.setModal(Qt.WindowModality.NonModal)
+        self.device_error_dialog.setModal(False)
         self.device_manager = DeviceManager(FunctionDispatcher(self.device_detected),
                 self.job_manager, Dispatcher(self.status_bar.show_message),
                 Dispatcher(self.show_open_feedback),
@@ -912,7 +937,7 @@ class DeviceMixin(object):  # {{{
         return question_dialog(self, _('Manage the %s?')%name,
                 _('Detected the <b>%s</b>. Do you want calibre to manage it?')%
                 name, show_copy_button=False,
-                override_icon=QIcon(icon))
+                override_icon=QIcon.ic(icon))
 
     def after_callback_feedback(self, feedback):
         title, msg, det_msg = feedback
@@ -935,7 +960,7 @@ class DeviceMixin(object):  # {{{
         d.show()
 
     def auto_convert_question(self, msg, autos):
-        autos = '\n'.join(map(unicode_type, map(force_unicode, autos)))
+        autos = '\n'.join(map(str, map(force_unicode, autos)))
         return self.ask_a_yes_no_question(
                 _('No suitable formats'), msg,
                 ans_when_user_unavailable=True,
@@ -975,7 +1000,7 @@ class DeviceMixin(object):  # {{{
         config_dialog = QDialog(self)
 
         config_dialog.setWindowTitle(_('Configure %s')%dev.get_gui_name())
-        config_dialog.setWindowIcon(QIcon(I('config.png')))
+        config_dialog.setWindowIcon(QIcon.ic('config.png'))
         l = QVBoxLayout(config_dialog)
         config_dialog.setLayout(l)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel)
@@ -991,7 +1016,7 @@ class DeviceMixin(object):  # {{{
             if cw.validate():
                 QDialog.accept(config_dialog)
         config_dialog.accept = validate
-        if config_dialog.exec_() == QDialog.DialogCode.Accepted:
+        if config_dialog.exec() == QDialog.DialogCode.Accepted:
             dev.save_settings(cw)
 
             do_restart = show_restart_warning(_('Restart calibre for the changes to %s'
@@ -1033,7 +1058,7 @@ class DeviceMixin(object):  # {{{
 
         try:
             if 'Could not read 32 bytes on the control bus.' in \
-                    unicode_type(job.details):
+                    str(job.details):
                 error_dialog(self, _('Error talking to device'),
                              _('There was a temporary error talking to the '
                              'device. Please unplug and reconnect the device '
@@ -1044,7 +1069,7 @@ class DeviceMixin(object):  # {{{
         if getattr(job, 'exception', None).__class__.__name__ == 'MTPInvalidSendPathError':
             try:
                 from calibre.gui2.device_drivers.mtp_config import SendError
-                return SendError(self, job.exception).exec_()
+                return SendError(self, job.exception).exec()
             except:
                 traceback.print_exc()
         try:
@@ -1236,7 +1261,7 @@ class DeviceMixin(object):  # {{{
         rows = self.library_view.selectionModel().selectedRows()
         if not rows or len(rows) == 0:
             error_dialog(self, _('No books'), _('No books')+' '+
-                    _('selected to send')).exec_()
+                    _('selected to send')).exec()
             return
 
         fmt = None
@@ -1266,7 +1291,7 @@ class DeviceMixin(object):  # {{{
                 elif f in aval_out_formats:
                     formats.append((f, _('0 of %i books') % len(rows), True))
             d = ChooseFormatDeviceDialog(self, _('Choose format to send to device'), formats)
-            if d.exec_() != QDialog.DialogCode.Accepted:
+            if d.exec() != QDialog.DialogCode.Accepted:
                 return
             if d.format():
                 fmt = d.format().lower()
@@ -1274,15 +1299,15 @@ class DeviceMixin(object):  # {{{
         if dest in ('main', 'carda', 'cardb'):
             if not self.device_connected or not self.device_manager:
                 error_dialog(self, _('No device'),
-                        _('Cannot send: No device is connected')).exec_()
+                        _('Cannot send: No device is connected')).exec()
                 return
             if dest == 'carda' and not self.device_manager.has_card():
                 error_dialog(self, _('No card'),
-                        _('Cannot send: Device has no storage card')).exec_()
+                        _('Cannot send: Device has no storage card')).exec()
                 return
             if dest == 'cardb' and not self.device_manager.has_card():
                 error_dialog(self, _('No card'),
-                        _('Cannot send: Device has no storage card')).exec_()
+                        _('Cannot send: Device has no storage card')).exec()
                 return
             if dest == 'main':
                 on_card = None
@@ -1361,7 +1386,7 @@ class DeviceMixin(object):  # {{{
             names = []
             for book_id, mi in zip(ids, metadata):
                 prefix = ascii_filename(mi.title)
-                if not isinstance(prefix, unicode_type):
+                if not isinstance(prefix, str):
                     prefix = prefix.decode(preferred_encoding, 'replace')
                 prefix = ascii_filename(prefix)
                 names.append('%s_%d%s'%(prefix, book_id,
@@ -1439,7 +1464,7 @@ class DeviceMixin(object):  # {{{
             names = []
             for book_id, mi in zip(ids, metadata):
                 prefix = ascii_filename(mi.title)
-                if not isinstance(prefix, unicode_type):
+                if not isinstance(prefix, str):
                     prefix = prefix.decode(preferred_encoding, 'replace')
                 prefix = ascii_filename(prefix)
                 names.append('%s_%d%s'%(prefix, book_id,
@@ -1453,7 +1478,7 @@ class DeviceMixin(object):  # {{{
                     self.location_manager.free[2] : 'cardb'}
                 on_card = space.get(sorted(space.keys(), reverse=True)[0], None)
                 try:
-                    total_size = sum([os.stat(f).st_size for f in files])
+                    total_size = sum(os.stat(f).st_size for f in files)
                 except:
                     try:
                         import traceback
@@ -1518,7 +1543,7 @@ class DeviceMixin(object):  # {{{
                 if not a:
                     a = _('Unknown')
                 prefix = ascii_filename(t+' - '+a)
-                if not isinstance(prefix, unicode_type):
+                if not isinstance(prefix, str):
                     prefix = prefix.decode(preferred_encoding, 'replace')
                 prefix = ascii_filename(prefix)
                 names.append('%s_%d%s'%(prefix, id, os.path.splitext(f)[1]))
@@ -1569,7 +1594,7 @@ class DeviceMixin(object):  # {{{
                 'as no suitable formats were found. Convert the book(s) to a '
                 'format supported by your device first.'
                 ), bad)
-            d.exec_()
+            d.exec()
 
     def upload_dirtied_booklists(self):
         '''
@@ -1639,7 +1664,7 @@ class DeviceMixin(object):  # {{{
 
         if job.exception is not None:
             if isinstance(job.exception, FreeSpaceError):
-                where = 'in main memory.' if 'memory' in unicode_type(job.exception) \
+                where = 'in main memory.' if 'memory' in str(job.exception) \
                         else 'on the storage card.'
                 titles = '\n'.join(['<li>'+mi.title+'</li>'
                                     for mi in metadata])
@@ -1647,10 +1672,10 @@ class DeviceMixin(object):  # {{{
                                  _('<p>Cannot upload books to device there '
                                  'is no more free space available ')+where+
                                  '</p>\n<ul>%s</ul>'%(titles,))
-                d.exec_()
+                d.exec()
             elif isinstance(job.exception, WrongDestinationError):
                 error_dialog(self, _('Incorrect destination'),
-                        unicode_type(job.exception), show=True)
+                        str(job.exception), show=True)
             else:
                 self.device_job_exception(job)
             return

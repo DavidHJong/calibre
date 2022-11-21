@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2019, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -9,13 +8,11 @@ from bs4 import (  # noqa
     SoupStrainer, Tag, __version__
 )
 
-from polyglot.builtins import unicode_type
-
 
 def parse_html(markup):
     from calibre.ebooks.chardet import strip_encoding_declarations, xml_to_unicode, substitute_entites
     from calibre.utils.cleantext import clean_xml_chars
-    if isinstance(markup, unicode_type):
+    if isinstance(markup, str):
         markup = strip_encoding_declarations(markup)
         markup = substitute_entites(markup)
     else:

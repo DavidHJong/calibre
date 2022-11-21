@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -13,13 +12,13 @@ from lxml import etree
 from lxml.builder import ElementMaker
 
 from calibre import prints
-from calibre.ebooks.metadata import check_isbn, check_doi
+from calibre.ebooks.metadata import string_to_authors, check_isbn, check_doi
 from calibre.utils.xml_parse import safe_xml_fromstring
 from calibre.ebooks.metadata.book.base import Metadata
 from calibre.ebooks.metadata.opf2 import dump_dict
 from calibre.utils.date import parse_date, isoformat, now
 from calibre.utils.localization import canonicalize_lang, lang_as_iso639_1
-from polyglot.builtins import iteritems, string_or_bytes, filter
+from polyglot.builtins import iteritems, string_or_bytes
 
 _xml_declaration = re.compile(r'<\?xml[^<>]+encoding\s*=\s*[\'"](.*?)[\'"][^<>]*>', re.IGNORECASE)
 
@@ -48,7 +47,7 @@ KNOWN_ID_SCHEMES = {'isbn', 'url', 'doi'}
 
 def expand(name):
     prefix, name = name.partition(':')[::2]
-    return '{%s}%s' % (NS_MAP[prefix], name)
+    return f'{{{NS_MAP[prefix]}}}{name}'
 
 
 xpath_cache = {}
@@ -249,7 +248,7 @@ def metadata_from_xmp_packet(raw_bytes):
         mi.title = title
     authors = multiple_sequences('//dc:creator', root)
     if authors:
-        mi.authors = authors
+        mi.authors = [au for aus in authors for au in string_to_authors(aus)]
     tags = multiple_sequences('//dc:subject', root) or multiple_sequences('//pdf:Keywords', root)
     if tags:
         mi.tags = tags
@@ -313,7 +312,7 @@ def metadata_from_xmp_packet(raw_bytes):
     for namespace in ('prism', 'pdfx'):
         for scheme in KNOWN_ID_SCHEMES:
             if scheme not in identifiers:
-                val = first_simple('//%s:%s' % (namespace, scheme), root)
+                val = first_simple(f'//{namespace}:{scheme}', root)
                 scheme = scheme.lower()
                 if scheme == 'isbn':
                     val = check_isbn(val)

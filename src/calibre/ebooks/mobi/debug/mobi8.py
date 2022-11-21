@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -17,10 +16,10 @@ from calibre.ebooks.mobi.utils import read_font_record, decode_tbs, RECORD_SIZE
 from calibre.ebooks.mobi.debug import format_bytes
 from calibre.ebooks.mobi.reader.headers import NULL_INDEX
 from calibre.utils.imghdr import what
-from polyglot.builtins import iteritems, itervalues, map, unicode_type, zip, print_to_binary_file
+from polyglot.builtins import iteritems, itervalues, print_to_binary_file
 
 
-class FDST(object):
+class FDST:
 
     def __init__(self, raw):
         if raw[:4] != b'FDST':
@@ -48,7 +47,7 @@ class FDST(object):
         return '\n'.join(ans)
 
 
-class File(object):
+class File:
 
     def __init__(self, skel, skeleton, text, first_aid, sections):
         self.name = 'part%04d'%skel.file_number
@@ -68,7 +67,7 @@ class File(object):
                     f.write(text)
 
 
-class MOBIFile(object):
+class MOBIFile:
 
     def __init__(self, mf):
         self.mf = mf
@@ -95,14 +94,14 @@ class MOBIFile(object):
 
     def print_header(self, f=sys.stdout):
         p = print_to_binary_file(f)
-        p(unicode_type(self.mf.palmdb))
+        p(str(self.mf.palmdb))
         p()
         p('Record headers:')
         for i, r in enumerate(self.mf.records):
             p('%6d. %s'%(i, r.header))
 
         p()
-        p(unicode_type(self.mf.mobi8_header))
+        p(str(self.mf.mobi8_header))
 
     def read_fdst(self):
         self.fdst = None
@@ -314,23 +313,23 @@ def inspect_mobi(mobi_file, ddir):
 
     for i, container in enumerate(f.containers):
         with open(os.path.join(ddir, 'container%d.txt' % (i + 1)), 'wb') as cf:
-            cf.write(unicode_type(container).encode('utf-8'))
+            cf.write(str(container).encode('utf-8'))
 
     if f.fdst:
         with open(os.path.join(ddir, 'fdst.record'), 'wb') as fo:
-            fo.write(unicode_type(f.fdst).encode('utf-8'))
+            fo.write(str(f.fdst).encode('utf-8'))
 
     with open(os.path.join(ddir, 'skel.record'), 'wb') as fo:
-        fo.write(unicode_type(f.skel_index).encode('utf-8'))
+        fo.write(str(f.skel_index).encode('utf-8'))
 
     with open(os.path.join(ddir, 'chunks.record'), 'wb') as fo:
-        fo.write(unicode_type(f.sect_index).encode('utf-8'))
+        fo.write(str(f.sect_index).encode('utf-8'))
 
     with open(os.path.join(ddir, 'ncx.record'), 'wb') as fo:
-        fo.write(unicode_type(f.ncx_index).encode('utf-8'))
+        fo.write(str(f.ncx_index).encode('utf-8'))
 
     with open(os.path.join(ddir, 'guide.record'), 'wb') as fo:
-        fo.write(unicode_type(f.guide_index).encode('utf-8'))
+        fo.write(str(f.guide_index).encode('utf-8'))
 
     with open(os.path.join(ddir, 'tbs.txt'), 'wb') as fo:
         fo.write(('\n'.join(f.indexing_data)).encode('utf-8'))

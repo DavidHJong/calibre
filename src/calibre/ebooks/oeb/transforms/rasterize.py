@@ -1,4 +1,3 @@
-
 '''
 SVG rasterization transform.
 '''
@@ -17,18 +16,45 @@ from calibre.ebooks.oeb.base import urlnormalize
 from calibre.ebooks.oeb.stylizer import Stylizer
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.imghdr import what
-from polyglot.builtins import unicode_type
 from polyglot.urllib import urldefrag
 
 IMAGE_TAGS = {XHTML('img'), XHTML('object')}
 KEEP_ATTRS = {'class', 'style', 'width', 'height', 'align'}
+TEST_SVG = b'''
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
+<path d="M4.5 11H3v4h4v-1.5H4.5V11zM3 7h1.5V4.5H7V3H3v4zm10.5 6.5H11V15h4v-4h-1.5v2.5zM11 3v1.5h2.5V7H15V3h-4z"/>
+</svg>'''
 
 
 class Unavailable(Exception):
     pass
 
 
-class SVGRasterizer(object):
+def rasterize_svg(data=TEST_SVG, sizes=(), width=0, height=0, print=None, fmt='PNG', as_qimage=False):
+    svg = QSvgRenderer(QByteArray(data))
+    size = svg.defaultSize()
+    if size.width() == 100 and size.height() == 100 and sizes:
+        size.setWidth(int(sizes[0]))
+        size.setHeight(int(sizes[1]))
+    if width or height:
+        size.scale(int(width), int(height), Qt.AspectRatioMode.KeepAspectRatio)
+    if print is not None:
+        print(f'Rasterizing SVG to {size.width()} x {size.height()}')
+    image = QImage(size, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor("white").rgb())
+    painter = QPainter(image)
+    svg.render(painter)
+    painter.end()
+    if as_qimage:
+        return image
+    array = QByteArray()
+    buffer = QBuffer(array)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, fmt)
+    return array.data()
+
+
+class SVGRasterizer:
 
     def __init__(self, base_css=''):
         self.base_css = base_css
@@ -77,31 +103,12 @@ class SVGRasterizer(object):
                     logger.info('Found SVG image height in %, trying to convert...')
                     try:
                         h = float(image.get('height').replace('%', ''))/100.
-                        image.set('height', unicode_type(h*sizes[1]))
+                        image.set('height', str(h*sizes[1]))
                     except:
                         logger.exception('Failed to convert percentage height:',
                                 image.get('height'))
 
-        data = QByteArray(xml2str(elem, with_tail=False))
-        svg = QSvgRenderer(data)
-        size = svg.defaultSize()
-        if size.width() == 100 and size.height() == 100 and sizes:
-            size.setWidth(sizes[0])
-            size.setHeight(sizes[1])
-        if width or height:
-            size.scale(width, height, Qt.AspectRatioMode.KeepAspectRatio)
-        logger.info('Rasterizing %r to %dx%d'
-                    % (elem, size.width(), size.height()))
-        image = QImage(size, QImage.Format.Format_ARGB32_Premultiplied)
-        image.fill(QColor("white").rgb())
-        painter = QPainter(image)
-        svg.render(painter)
-        painter.end()
-        array = QByteArray()
-        buffer = QBuffer(array)
-        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-        image.save(buffer, format)
-        return array.data()
+        return rasterize_svg(xml2str(elem, with_tail=False), sizes=sizes, width=width, height=height, print=logger.info, fmt=format)
 
     def dataize_manifest(self):
         for item in self.oeb.manifest.values():
@@ -185,7 +192,7 @@ class SVGRasterizer(object):
         data = QByteArray(svgitem.bytes_representation)
         svg = QSvgRenderer(data)
         size = svg.defaultSize()
-        size.scale(width, height, Qt.AspectRatioMode.KeepAspectRatio)
+        size.scale(int(width), int(height), Qt.AspectRatioMode.KeepAspectRatio)
         key = (svgitem.href, size.width(), size.height())
         if key in self.images:
             href = self.images[key]
@@ -223,11 +230,11 @@ class SVGRasterizer(object):
         covers = self.oeb.metadata.cover
         if not covers:
             return
-        if unicode_type(covers[0]) not in self.oeb.manifest.ids:
+        if str(covers[0]) not in self.oeb.manifest.ids:
             self.oeb.logger.warn('Cover not in manifest, skipping.')
             self.oeb.metadata.clear('cover')
             return
-        cover = self.oeb.manifest.ids[unicode_type(covers[0])]
+        cover = self.oeb.manifest.ids[str(covers[0])]
         if not cover.media_type == SVG_MIME:
             return
         width = (self.profile.width / 72) * self.profile.dpi

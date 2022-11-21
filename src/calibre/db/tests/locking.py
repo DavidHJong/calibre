@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -9,7 +8,6 @@ import time, random
 from threading import Thread
 from calibre.db.tests.base import BaseTest
 from calibre.db.locking import SHLock, RWLockWrapper, LockingError
-from polyglot.builtins import range
 
 
 def wait_for(period):
@@ -187,7 +185,7 @@ class TestLock(BaseTest):
                 break
             t.join(left)
         live = [t for t in threads if t.is_alive()]
-        self.assertEqual(len(live), 0, 'ShLock hung or very slow, {} threads alive'.format(len(live)))
+        self.assertEqual(len(live), 0, f'ShLock hung or very slow, {len(live)} threads alive')
         self.assertEqual(len(done), len(threads), 'SHLock locking failed')
         self.assertFalse(lock.is_shared)
         self.assertFalse(lock.is_exclusive)

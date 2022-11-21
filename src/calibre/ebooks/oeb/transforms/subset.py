@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 
 
 __license__   = 'GPL v3'
@@ -10,7 +9,7 @@ from collections import defaultdict
 
 from calibre.ebooks.oeb.base import urlnormalize, css_text
 from calibre.utils.fonts.sfnt.subset import subset, NoGlyphs, UnsupportedFont
-from polyglot.builtins import iteritems, itervalues, unicode_type, range
+from polyglot.builtins import iteritems, itervalues
 from tinycss.fonts3 import parse_font_family
 
 
@@ -35,7 +34,7 @@ def get_font_properties(rule, default=None):
         except (IndexError, KeyError, AttributeError, TypeError, ValueError):
             val = None if q in {'src', 'font-family'} else default
         if q in {'font-weight', 'font-stretch', 'font-style'}:
-            val = unicode_type(val).lower() if (val or val == 0) else val
+            val = str(val).lower() if (val or val == 0) else val
             if val == 'inherit':
                 val = default
         if q == 'font-weight':
@@ -119,7 +118,7 @@ def elem_style(style_rules, cls, inherited_style):
     return style
 
 
-class SubsetFonts(object):
+class SubsetFonts:
 
     '''
     Subset all embedded fonts. Must be run after CSS flattening, as it requires
@@ -236,7 +235,7 @@ class SubsetFonts(object):
         no match is found (can happen if no family matches).
         '''
         ff = style.get('font-family', [])
-        lnames = {unicode_type(x).lower() for x in ff}
+        lnames = {str(x).lower() for x in ff}
         matching_set = []
 
         # Filter on font-family

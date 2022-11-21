@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 # License: GPLv3 Copyright: 2010, Kovid Goyal <kovid at kovidgoyal.net>
 
 import errno
@@ -9,12 +8,11 @@ import os
 import sys
 import textwrap
 import time
-
 from qt.core import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-    QFrame, QHBoxLayout, QIcon, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QLayout,
-    QPushButton, QScrollArea, QSize, QSizePolicy, QSpinBox, Qt, QTabWidget, QTimer,
-    QToolButton, QUrl, QVBoxLayout, QWidget, pyqtSignal, sip
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+    QFormLayout, QFrame, QHBoxLayout, QIcon, QLabel, QLayout, QLineEdit, QListWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QSize, QSizePolicy, QSpinBox, Qt,
+    QTabWidget, QTimer, QToolButton, QUrl, QVBoxLayout, QWidget, pyqtSignal, sip
 )
 
 from calibre import as_unicode
@@ -27,16 +25,15 @@ from calibre.gui2.preferences import AbortCommit, ConfigWidgetBase, test_widget
 from calibre.gui2.widgets import HistoryLineEdit
 from calibre.srv.code import custom_list_template as default_custom_list_template
 from calibre.srv.embedded import custom_list_template, search_the_net_urls
-from calibre.srv.loop import parse_trusted_ips
 from calibre.srv.library_broker import load_gui_libraries
+from calibre.srv.loop import parse_trusted_ips
 from calibre.srv.opts import change_settings, options, server_config
 from calibre.srv.users import (
     UserManager, create_user_data, validate_password, validate_username
 )
 from calibre.utils.icu import primary_sort_key
 from calibre.utils.shared_file import share_open
-from polyglot.builtins import as_bytes, unicode_type
-
+from polyglot.builtins import as_bytes
 
 if iswindows and not isportable:
     from calibre_extensions import winutil
@@ -57,7 +54,7 @@ if iswindows and not isportable:
         if args:
             quoted_args = []
             for arg in args:
-                quoted_args.append('"{}"'.format(arg))
+                quoted_args.append(f'"{arg}"')
             quoted_args = ' '.join(quoted_args)
         winutil.manage_shortcut(shortcut_path, target, description, quoted_args)
 
@@ -169,7 +166,7 @@ class Text(QLineEdit):
         return self.text().strip() or None
 
     def set(self, val):
-        self.setText(unicode_type(val or ''))
+        self.setText(str(val or ''))
 
 
 class Path(QWidget):
@@ -183,14 +180,14 @@ class Path(QWidget):
         self.l = l = QHBoxLayout(self)
         l.setContentsMargins(0, 0, 0, 0)
         self.text = t = HistoryLineEdit(self)
-        t.initialize('server-opts-{}'.format(name))
+        t.initialize(f'server-opts-{name}')
         t.setClearButtonEnabled(True)
         t.currentTextChanged.connect(self.changed_signal.emit)
         l.addWidget(t)
 
         self.b = b = QToolButton(self)
         l.addWidget(b)
-        b.setIcon(QIcon(I('document_open.png')))
+        b.setIcon(QIcon.ic('document_open.png'))
         b.setToolTip(_("Browse for the file"))
         b.clicked.connect(self.choose)
         init_opt(self, opt, layout)
@@ -199,7 +196,7 @@ class Path(QWidget):
         return self.text.text().strip() or None
 
     def set(self, val):
-        self.text.setText(unicode_type(val or ''))
+        self.text.setText(str(val or ''))
 
     def choose(self):
         ans = choose_files(self, 'choose_path_srv_opts_' + self.dname, _('Choose a file'), select_only_single_file=True)
@@ -217,7 +214,7 @@ class Choices(QComboBox):
         self.setEditable(False)
         opt = options[name]
         self.choices = opt.choices
-        tuple(map(self.addItem, opt.choices))
+        self.addItems(opt.choices)
         self.currentIndexChanged.connect(self.changed_signal.emit)
         init_opt(self, opt, layout)
 
@@ -699,7 +696,7 @@ class ChangeRestriction(QDialog):
             else:
                 m = _('{} is allowed access to all libraries, <b>except</b> those'
                       ' whose names match one of the names specified below.')
-                sheet += 'QWidget#libraries { background-color: #FAE7B5}'
+                sheet += f'QWidget#libraries {{ background-color: {QApplication.instance().emphasis_window_background_color} }}'
             self.libraries.setEnabled(True), self.la.setEnabled(True)
             self.items = self.items
         self.msg.setText(m.format(self.username))
@@ -740,7 +737,7 @@ class User(QWidget):
 
     def change_password(self):
         d = NewUser(self.user_data, self, self.username)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.user_data[self.username]['pw'] = d.password
             self.changed_signal.emit()
 
@@ -797,7 +794,7 @@ class User(QWidget):
             self.user_data[self.username]['restriction'].copy(),
             parent=self
         )
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.user_data[self.username]['restriction'] = d.restriction
             self.update_restriction()
             self.changed_signal.emit()
@@ -820,11 +817,11 @@ class Users(QWidget):
 
         self.h = h = QHBoxLayout()
         lp.addLayout(h)
-        self.add_button = b = QPushButton(QIcon(I('plus.png')), _('&Add user'), self)
+        self.add_button = b = QPushButton(QIcon.ic('plus.png'), _('&Add user'), self)
         b.clicked.connect(self.add_user)
         h.addWidget(b)
         self.remove_button = b = QPushButton(
-            QIcon(I('minus.png')), _('&Remove user'), self
+            QIcon.ic('minus.png'), _('&Remove user'), self
         )
         b.clicked.connect(self.remove_user)
         h.addStretch(2), h.addWidget(b)
@@ -861,7 +858,7 @@ class Users(QWidget):
 
     def add_user(self):
         d = NewUser(self.user_data, parent=self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             un, pw = d.username, d.password
             self.user_data[un] = create_user_data(pw)
             self.user_list.insertItem(0, un)
@@ -1001,7 +998,7 @@ class CustomList(QWidget):  # {{{
         if template == self.default_template:
             try:
                 os.remove(custom_list_template.path)
-            except EnvironmentError as err:
+            except OSError as err:
                 if err.errno != errno.ENOENT:
                     raise
         else:
@@ -1108,7 +1105,7 @@ class SearchTheInternet(QWidget):
 
         self.h = QHBoxLayout()
         gl.addLayout(self.h)
-        self.add_url_button = b = QPushButton(QIcon(I('plus.png')), _('&Add URL'))
+        self.add_url_button = b = QPushButton(QIcon.ic('plus.png'), _('&Add URL'))
         b.clicked.connect(self.add_url)
         self.h.addWidget(b)
         self.export_button = b = QPushButton(_('Export URLs'))
@@ -1169,11 +1166,11 @@ class SearchTheInternet(QWidget):
         cu = self.current_urls
         if cu:
             with lopen(search_the_net_urls.path, 'wb') as f:
-                f.write(self.serialized_urls)
+                f.write(self.serialized_urls.encode('utf-8'))
         else:
             try:
                 os.remove(search_the_net_urls.path)
-            except EnvironmentError as err:
+            except OSError as err:
                 if err.errno != errno.ENOENT:
                     raise
         return True
@@ -1184,7 +1181,7 @@ class SearchTheInternet(QWidget):
             filters=[(_('URL files'), ['json'])], initial_filename='search-urls.json')
         if path:
             with lopen(path, 'wb') as f:
-                f.write(self.serialized_urls)
+                f.write(self.serialized_urls.encode('utf-8'))
 
     def import_urls(self):
         paths = choose_files(self, 'search-net-urls', _('Choose URLs file'),
@@ -1273,7 +1270,7 @@ class ConfigWidget(ConfigWidgetBase):
                     self,
                     _('Failed to start Content server'),
                     as_unicode(self.gui.content_server.exception)
-                ).exec_()
+                ).exec()
                 self.gui.content_server = None
                 return
             self.main_tab.update_button_state()
@@ -1289,7 +1286,7 @@ class ConfigWidget(ConfigWidgetBase):
             show_copy_button=False
         )
         QTimer.singleShot(500, self.check_exited)
-        self.stopping_msg.exec_()
+        self.stopping_msg.exec()
 
     def check_exited(self):
         if getattr(self.server, 'is_running', False):
@@ -1324,7 +1321,7 @@ class ConfigWidget(ConfigWidgetBase):
             el.setPlainText(
                 share_open(log_error_file, 'rb').read().decode('utf8', 'replace')
             )
-        except EnvironmentError:
+        except OSError:
             el.setPlainText(_('No error log found'))
         layout.addWidget(QLabel(_('Access log:')))
         al = QPlainTextEdit(d)
@@ -1333,7 +1330,7 @@ class ConfigWidget(ConfigWidgetBase):
             al.setPlainText(
                 share_open(log_access_file, 'rb').read().decode('utf8', 'replace')
             )
-        except EnvironmentError:
+        except OSError:
             al.setPlainText(_('No access log found'))
         loc = QLabel(_('The server log files are in: {}').format(os.path.dirname(log_error_file)))
         loc.setWordWrap(True)
@@ -1354,7 +1351,7 @@ class ConfigWidget(ConfigWidgetBase):
                 for x in (log_error_file, log_access_file):
                     try:
                         os.remove(x)
-                    except EnvironmentError as err:
+                    except OSError as err:
                         if err.errno != errno.ENOENT:
                             raise
             el.setPlainText(''), al.setPlainText('')

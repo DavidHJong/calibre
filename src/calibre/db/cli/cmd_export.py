@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -101,7 +100,7 @@ an opf file). You can get id numbers from the search command.
     return parser
 
 
-class DBProxy(object):
+class DBProxy:
 
     # Proxy to allow do_save_book_to_disk() to work with remote database
 
@@ -148,7 +147,7 @@ def main(opts, args, dbctx):
         export(opts, dbctx, book_id, dest, dbproxy, length, i == 0)
         if opts.progress:
             num = i + 1
-            print('\r  {:.0%} [{}/{}]'.format(num / total, num, total), end=' '*20)
+            print(f'\r  {num / total:.0%} [{num}/{total}]', end=' '*20)
     if opts.progress:
         print()
     return 0

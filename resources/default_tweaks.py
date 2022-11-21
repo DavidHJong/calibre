@@ -32,17 +32,15 @@
 # Note that the use_series_auto_increment_tweak_when_importing tweak is used
 # only when a value is not provided during import. If the importing regular
 # expression produces a value for series_index, or if you are reading metadata
-# from books and the import plugin produces a value, than that value will
+# from books and the import plugin produces a value, then that value will
 # be used irrespective of the setting of the tweak.
 series_index_auto_increment = 'next'
 use_series_auto_increment_tweak_when_importing = False
 
 #: Add separator after completing an author name
-# Should the completion separator be append
-# to the end of the completed text to
-# automatically begin a new completion operation
-# for authors.
-# Can be either True or False
+# Set this if the completion separator should be appended to the end of the
+# completed text to automatically begin a new completion operation for authors.
+# It can be either True or False
 authors_completer_append_separator = False
 
 #: Author sort name algorithm
@@ -54,7 +52,7 @@ authors_completer_append_separator = False
 #  nocomma : "fn ln" -> "ln fn" (without the comma)
 # When this tweak is changed, the author_sort values stored with each author
 # must be recomputed by right-clicking on an author in the left-hand tags
-# panel, selecting 'manage authors', and pressing
+# panel, selecting 'Manage authors', and pressing
 # 'Recalculate all author sort values'.
 #
 # The author_name_suffixes are words that are ignored when they occur at the
@@ -65,7 +63,7 @@ authors_completer_append_separator = False
 #
 # The author_name_copywords are a set of words which, if they occur in an
 # author name, cause the automatically generated author sort string to be
-# identical to the author name. This means that the sort for a string like
+# identical to the author's name. This means that the sort for a string like
 # "Acme Inc." will be "Acme Inc." instead of "Inc., Acme".
 #
 # If author_use_surname_prefixes is enabled, any of the words in
@@ -128,17 +126,6 @@ categories_collapsed_name_template = r'{first.sort:shorten(4,,0)} - {last.sort:s
 categories_collapsed_rating_template = r'{first.avg_rating:4.2f:ifempty(0)} - {last.avg_rating:4.2f:ifempty(0)}'
 categories_collapsed_popularity_template = r'{first.count:d} - {last.count:d}'
 
-#: Control order of categories in the Tag browser
-# Change the following dict to change the order that categories are displayed in
-# the Tag browser. Items are named using their lookup name, and will be sorted
-# using the number supplied. The lookup name '*' stands for all names that
-# otherwise do not appear. Two names with the same value will be sorted
-# using the default order; the one used when the dict is empty.
-# Example: tag_browser_category_order = {'series':1, 'tags':2, '*':3}
-# resulting in the order series, tags, then everything else in default order.
-tag_browser_category_order = {'*':1}
-
-
 #: Specify columns to sort the booklist by on startup
 # Provide a set of columns to be sorted on when calibre starts.
 # The argument is None if saved sort history is to be used
@@ -192,7 +179,7 @@ gui_last_modified_display_format = 'dd MMM yyyy'
 # book will sort under 'T'.
 # This flag affects calibre's library display. It has no effect on devices. In
 # addition, titles for books added before changing the flag will retain their
-# order until the title is edited. Editing a title and hitting return
+# order until the title is edited. Editing a title and hitting Enter
 # without changing anything is sufficient to change the sort. Or you can use
 # the 'Update title sort' action in the Bulk metadata edit dialog to update
 # it for many books at once.
@@ -235,7 +222,9 @@ per_language_title_sort_articles = {
                   r'Una\s+', r'Unos\s+', r'Unas\s+'),
         # French
         'fra'  : (r'Le\s+', r'La\s+', r"L'", u'L´', u'L’', r'Les\s+', r'Un\s+', r'Une\s+',
-                  r'Des\s+', r'De\s+La\s+', r'De\s+', r"D'", u'D´', u'L’'),
+                  r'Des\s+', r'De\s+La\s+', r'De\s+', r"D'", r'D´', r'D’'),
+        # Polish
+        'pol': (),
         # Italian
         'ita': ('Lo\\s+', 'Il\\s+', "L'", 'L´', 'La\\s+', 'Gli\\s+',
                 'I\\s+', 'Le\\s+', 'Uno\\s+', 'Un\\s+', 'Una\\s+', "Un'",
@@ -283,8 +272,9 @@ auto_connect_to_folder = ''
 # Specify renaming rules for SONY collections. This tweak is only applicable if
 # metadata management is set to automatic. Collections on SONYs are named
 # depending upon whether the field is standard or custom. A collection derived
-# from a standard field is named for the value in that field. For example, if
-# the standard 'series' column contains the value 'Darkover', then the
+# from a standard field is named for the value in that field.
+#
+# For example, if the standard 'series' column contains the value 'Darkover', then the
 # collection name is 'Darkover'. A collection derived from a custom field will
 # have the name of the field added to the value. For example, if a custom series
 # column named 'My Series' contains the name 'Darkover', then the collection
@@ -292,18 +282,22 @@ auto_connect_to_folder = ''
 # documentation, 'Darkover' is called the value and 'My Series' is called the
 # category. If two books have fields that generate the same collection name,
 # then both books will be in that collection.
+#
 # This set of tweaks lets you specify for a standard or custom field how
 # the collections are to be named. You can use it to add a description to a
 # standard field, for example 'Foo (Tag)' instead of the 'Foo'. You can also use
-# it to force multiple fields to end up in the same collection. For example, you
-# could force the values in 'series', '#my_series_1', and '#my_series_2' to
-# appear in collections named 'some_value (Series)', thereby merging all of the
-# fields into one set of collections.
+# it to force multiple fields to end up in the same collection.
+#
+# For example, you could force the values in 'series', '#my_series_1', and
+# '#my_series_2' to appear in collections named 'some_value (Series)', thereby
+# merging all of the fields into one set of collections.
+#
 # There are two related tweaks. The first determines the category name to use
 # for a metadata field.  The second is a template, used to determines how the
 # value and category are combined to create the collection name.
 # The syntax of the first tweak, sony_collection_renaming_rules, is:
 # {'field_lookup_name':'category_name_to_use', 'lookup_name':'name', ...}
+#
 # The second tweak, sony_collection_name_template, is a template. It uses the
 # same template language as plugboards and save templates. This tweak controls
 # how the value and category are combined together to make the collection name.
@@ -311,22 +305,28 @@ auto_connect_to_folder = ''
 # never empty. The {category} field can be empty. The default is to put the
 # value first, then the category enclosed in parentheses, it isn't empty:
 # '{value} {category:|(|)}'
+#
 # Examples: The first three examples assume that the second tweak
 # has not been changed.
-#  1: I want three series columns to be merged into one set of collections. The
-#  column lookup names are 'series', '#series_1' and '#series_2'. I want nothing
-#  in the parenthesis. The value to use in the tweak value would be:
+#
+# 1) I want three series columns to be merged into one set of collections. The
+# column lookup names are 'series', '#series_1' and '#series_2'. I want nothing
+# in the parenthesis. The value to use in the tweak value would be:
 #    sony_collection_renaming_rules={'series':'', '#series_1':'', '#series_2':''}
-#  2: I want the word '(Series)' to appear on collections made from series, and
-#  the word '(Tag)' to appear on collections made from tags. Use:
-#    sony_collection_renaming_rules={'series':'Series', 'tags':'Tag'}
-#  3: I want 'series' and '#myseries' to be merged, and for the collection name
-#  to have '(Series)' appended. The renaming rule is:
-#    sony_collection_renaming_rules={'series':'Series', '#myseries':'Series'}
-#  4: Same as example 2, but instead of having the category name in parentheses
-#  and appended to the value, I want it prepended and separated by a colon, such
-#  as in Series: Darkover. I must change the template used to format the category name
-#  The resulting two tweaks are:
+#
+# 2) I want the word '(Series)' to appear on collections made from series, and
+# the word '(Tag)' to appear on collections made from tags. Use:
+#   sony_collection_renaming_rules={'series':'Series', 'tags':'Tag'}
+#
+# 3) I want 'series' and '#myseries' to be merged, and for the collection name
+# to have '(Series)' appended. The renaming rule is:
+#   sony_collection_renaming_rules={'series':'Series', '#myseries':'Series'}
+#
+# 4) Same as example 2, but instead of having the category name in parentheses
+# and appended to the value, I want it prepended and separated by a colon, such
+# as in Series: Darkover. I must change the template used to format the category name
+#
+# The resulting two tweaks are:
 #    sony_collection_renaming_rules={'series':'Series', 'tags':'Tag'}
 #    sony_collection_name_template='{category:||: }{value}'
 sony_collection_renaming_rules={}
@@ -376,17 +376,18 @@ sort_dates_using_visible_fields = False
 cover_trim_fuzz_value = 10
 
 #: Control behavior of the book list
-# You can control the behavior of double clicks and pressing enter on the books
+# You can control the behavior of double clicks and pressing Enter on the books
 # list. Choices: open_viewer, do_nothing, show_book_details, edit_cell,
 # edit_metadata. Selecting anything other than open_viewer or show_book_details
 # has the side effect of disabling editing a field using a single click.
 # Default: open_viewer.
 # Example: doubleclick_on_library_view = 'do_nothing'
-# You can also control whether the book list scrolls horizontal per column or
-# per pixel. Default is per column.
+# You can also control whether the book list scrolls per item or
+# per pixel. Default is per item.
 doubleclick_on_library_view = 'open_viewer'
 enter_key_behavior = 'do_nothing'
-horizontal_scrolling_per_column = True
+horizontal_scrolling_per_column = False
+vertical_scrolling_per_row = False
 
 #: Language to use when sorting
 # Setting this tweak will force sorting to use the
@@ -400,37 +401,6 @@ horizontal_scrolling_per_column = True
 # Example: locale_for_sorting = 'nb' -- sort using Norwegian rules.
 locale_for_sorting =  ''
 
-#: Number of columns for custom metadata in the edit metadata dialog
-# Set whether to use one or two columns for custom metadata when editing
-# metadata  one book at a time. If True, then the fields are laid out using two
-# columns. If False, one column is used.
-metadata_single_use_2_cols_for_custom_fields = True
-
-#: Order of custom column(s) in edit metadata
-# Controls the order that custom columns are listed in edit metadata single
-# and bulk. The columns listed in the tweak are displayed first and in the
-# order provided. Any columns not listed are displayed after the listed ones,
-# in alphabetical order. Do note that this tweak does not change the size of
-# the edit widgets. Putting comments widgets in this list may result in some
-# odd widget spacing when using two-column mode.
-# Enter a comma-separated list of custom field lookup names, as in
-# metadata_edit_custom_column_order = ['#genre', '#mytags', '#etc']
-metadata_edit_custom_column_order = []
-
-#: Edit metadata custom column label width and elision point
-# Set the width of custom column labels shown in the edit metadata dialogs.
-# If metadata_edit_elide_labels is True then labels wider than the width
-# will be elided, otherwise they will be word wrapped. The maximum width is
-# computed by multiplying the average width of characters in the font by the
-# appropriate number.
-# Set the elision point to 'middle' to put the ellipsis (…) in the middle of
-# the label, 'right' to put it at the right end of the label, and 'left' to
-# put it at the left end.
-metadata_edit_elide_labels = True
-metadata_edit_bulk_cc_label_length = 25
-metadata_edit_single_cc_label_length = 12
-metadata_edit_elision_point = 'right'
-
 #: The number of seconds to wait before sending emails
 # The number of seconds to wait before sending emails when using a
 # public email server like GMX/Hotmail/Gmail. Default is: 5 minutes
@@ -440,7 +410,7 @@ metadata_edit_elision_point = 'right'
 # to be public relays here. Any relay host ending with one of the suffixes
 # in the list below will be considered a public email server.
 public_smtp_relay_delay = 301
-public_smtp_relay_host_suffixes = ['gmail.com', 'live.com', 'gmx.com']
+public_smtp_relay_host_suffixes = ['gmail.com', 'live.com', 'gmx.com', 'outlook.com']
 
 #: The maximum width and height for covers saved in the calibre library
 # All covers in the calibre library will be resized, preserving aspect ratio,
@@ -505,7 +475,14 @@ default_tweak_format = None
 # completions you will now have to press Tab to select one before pressing
 # Enter. Which technique you prefer will depend on the state of metadata in
 # your library and your personal editing style.
+#
+# If preselect_first_completion is False and you want Tab to accept what you
+# typed instead of the first completion then set tab_accepts_uncompleted_text
+# to True. If you do this then to select from the completions you must press
+# the Down or Up arrow keys. The tweak tab_accepts_uncompleted_text is ignored
+# if preselect_first_completion is True
 preselect_first_completion = False
+tab_accepts_uncompleted_text = False
 
 #: Completion mode when editing authors/tags/series/etc.
 # By default, when completing items, calibre will show you all the candidates
@@ -514,13 +491,6 @@ preselect_first_completion = False
 # completion_mode to 'contains'. For example, if you type asi it will match both
 # Asimov and Quasimodo, whereas the default behavior would match only Asimov.
 completion_mode = 'prefix'
-
-#: Recognize numbers inside text when sorting
-# This means that when sorting on text fields like title the text "Book 2"
-# will sort before the text "Book 100". If you want this behavior, set
-# numeric_collation = True note that doing so will cause problems with text
-# that starts with numbers and is a little slower.
-numeric_collation = False
 
 #: Sort the list of libraries alphabetically
 # The list of libraries in the Copy to library and Quick switch menus are
@@ -552,17 +522,13 @@ content_server_thumbnail_compression_quality = 75
 #    cover_drop_exclude = {'tiff', 'webp'}
 cover_drop_exclude = ()
 
-#: Show the Saved searches box in the Search bar
-# In newer versions of calibre, only a single button that allows you to add a
-# new Saved search is shown in the Search bar. If you would like to have the
-# old Saved searches box with its two buttons back, set this tweak to True.
-show_saved_search_box = False
-
 #: Exclude fields when copy/pasting metadata
 # You can ask calibre to not paste some metadata fields when using the
 # Edit metadata->Copy metadata/Paste metadata actions. For example,
 # exclude_fields_on_paste = ['cover', 'timestamp', '#mycolumn']
 # to prevent pasting of the cover, Date and custom column, mycolumn.
+# You can also add a shortcut in Preferences->Shortcuts->Edit metadata
+# to paste metadata ignoring this tweak.
 exclude_fields_on_paste = []
 
 #: Skip internet connected check
@@ -573,5 +539,25 @@ skip_network_check = False
 
 #: Tab stop width in the template editor
 # Sets the width of the tab stop in the template editor in "average characters".
-# For example, a value of 1 results in a space the width of one average character.
+# For example, a value of 1 results in a space with the width of one average character.
 template_editor_tab_stop_width = 4
+
+#: Value for undefined numbers when sorting
+# Sets the value to use for undefined numbers when sorting.
+# For example, the value -10 sorts undefined numbers as if they were set to -10.
+# Use 'maximum' for the largest possible number. Use 'minimum' for the smallest
+# possible number. Quotes are optional if entering a number.
+# Examples:
+#   value_for_undefined_numbers_when_sorting = -100
+#   value_for_undefined_numbers_when_sorting = '2'
+#   value_for_undefined_numbers_when_sorting = -0.01
+#   value_for_undefined_numbers_when_sorting = 'minimum'
+#   value_for_undefined_numbers_when_sorting = 'maximum'
+value_for_undefined_numbers_when_sorting = 0
+
+#: Allow template database functions in composite columns
+# If True then the template database functions book_values() and book_count()
+# can be used in composite custom columns. Note: setting this tweak to True and
+# using these functions in composites can be very slow.
+# Default: False
+allow_template_database_functions_in_composites = False

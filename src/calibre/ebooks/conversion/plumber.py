@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
@@ -20,7 +17,7 @@ from calibre.utils.zipfile import ZipFile
 from calibre import (extract, walk, isbytestring, filesystem_encoding,
         get_types_map)
 from calibre.constants import __version__
-from polyglot.builtins import unicode_type, string_or_bytes, map
+from polyglot.builtins import string_or_bytes
 
 DEBUG_README=b'''
 This debug folder contains snapshots of the e-book as it passes through the
@@ -51,11 +48,11 @@ def supported_input_formats():
     return fmts
 
 
-class OptionValues(object):
+class OptionValues:
     pass
 
 
-class CompositeProgressReporter(object):
+class CompositeProgressReporter:
 
     def __init__(self, global_min, global_max, global_reporter):
         self.global_min, self.global_max = global_min, global_max
@@ -70,7 +67,7 @@ class CompositeProgressReporter(object):
 ARCHIVE_FMTS = ('zip', 'rar', 'oebzip')
 
 
-class Plumber(object):
+class Plumber:
 
     '''
     The `Plumber` manages the conversion pipeline. An UI should call the methods
@@ -369,6 +366,12 @@ OptionRecommendation(name='transform_css_rules',
                    ' rules are applied after all other CSS processing is done.')
         ),
 
+OptionRecommendation(name='transform_html_rules',
+            recommended_value=None, level=OptionRecommendation.LOW,
+            help=_('Rules for transforming the HTML in this book. These'
+                   ' rules are applied after the HTML is parsed, but before any other transformations.')
+        ),
+
 OptionRecommendation(name='filter_css',
             recommended_value=None, level=OptionRecommendation.LOW,
             help=_('A comma separated list of CSS properties that '
@@ -508,7 +511,7 @@ OptionRecommendation(name='smarten_punctuation',
         recommended_value=False, level=OptionRecommendation.LOW,
         help=_('Convert plain quotes, dashes and ellipsis to their '
             'typographically correct equivalents. For details, see '
-            'https://daringfireball.net/projects/smartypants'
+            'https://daringfireball.net/projects/smartypants.'
             )
         ),
 
@@ -794,7 +797,7 @@ OptionRecommendation(name='search_replace',
     def unarchive(self, path, tdir):
         extract(path, tdir)
         files = list(walk(tdir))
-        files = [f if isinstance(f, unicode_type) else f.decode(filesystem_encoding)
+        files = [f if isinstance(f, str) else f.decode(filesystem_encoding)
                 for f in files]
         from calibre.customize.ui import available_input_formats
         fmts = set(available_input_formats())
@@ -847,7 +850,7 @@ OptionRecommendation(name='search_replace',
         rec = self.get_option_by_name(name)
         help = getattr(rec, 'help', None)
         if help is not None:
-            return help.replace('%default', unicode_type(rec.recommended_value))
+            return help.replace('%default', str(rec.recommended_value))
 
     def get_all_help(self):
         ans = {}
@@ -881,7 +884,7 @@ OptionRecommendation(name='search_replace',
             if name in {'sr1_search', 'sr1_replace', 'sr2_search', 'sr2_replace', 'sr3_search', 'sr3_replace', 'filter_css', 'comments'}:
                 if not a and not b:
                     return True
-            if name in {'transform_css_rules', 'search_replace'}:
+            if name in {'transform_css_rules', 'transform_html_rules', 'search_replace'}:
                 if b == '[]':
                     b = None
             return a == b
@@ -915,7 +918,7 @@ OptionRecommendation(name='search_replace',
                     try:
                         val = parse_date(val, assume_utc=x=='timestamp')
                     except:
-                        self.log.exception(_('Failed to parse date/time') + ' ' + unicode_type(val))
+                        self.log.exception(_('Failed to parse date/time') + ' ' + str(val))
                         continue
                 setattr(mi, x, val)
 
@@ -1054,7 +1057,7 @@ OptionRecommendation(name='search_replace',
             from calibre.utils.fonts.scanner import font_scanner  # noqa
         import css_parser, logging
         css_parser.log.setLevel(logging.WARN)
-        get_types_map()  # Ensure the mimetypes module is intialized
+        get_types_map()  # Ensure the mimetypes module is initialized
 
         if self.opts.debug_pipeline is not None:
             self.opts.verbose = max(self.opts.verbose, 4)
@@ -1132,6 +1135,13 @@ OptionRecommendation(name='search_replace',
         pr(0., _('Running transforms on e-book...'))
 
         self.oeb.plumber_output_format = self.output_fmt or ''
+
+        if self.opts.transform_html_rules:
+            transform_html_rules = self.opts.transform_html_rules
+            if isinstance(transform_html_rules, string_or_bytes):
+                transform_html_rules = json.loads(transform_html_rules)
+            from calibre.ebooks.html_transform_rules import transform_conversion_book
+            transform_conversion_book(self.oeb, self.opts, transform_html_rules)
 
         from calibre.ebooks.oeb.transforms.data_url import DataURL
         DataURL()(self.oeb, self.opts)

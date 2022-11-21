@@ -250,6 +250,14 @@ rules that change styles based on various conditions. For example you can use
 it to change all green colors to blue, or remove all bold styling from the text
 or color all headings a certain color, etc.
 
+Transform HTML
+~~~~~~~~~~~~~~~~~~~
+
+Similar to transform styles, but allows you to make changes to the HTML content
+of the book. You can replace one tag with another, add classes or other
+attributes to tags based on their content, etc.
+
+
 
 .. _page-setup:
 
@@ -644,7 +652,7 @@ calibre can automatically convert ``.docx`` files created by Microsoft Word 2007
 newer. Just add the file to calibre and click convert.
 
 .. note::
-    There is a `demo .docx file <https://calibre-ebook.com/downloads/demos/demo.docx>`_
+    There is a :download_file:`demo .docx file <demos/demo.docx>`
     that demonstrates the capabilities of the calibre conversion engine. Just
     download it and convert it to EPUB or AZW3 to see what calibre can do.
 
@@ -663,9 +671,8 @@ produce clean HTML that will convert well. Note that Word produces really messy
 HTML, converting it can take a long time, so be patient. If you have a newer
 version of Word available, you can directly save it as .docx as well.
 
-Another alternative is to use the free OpenOffice. Open your .doc file in
-OpenOffice and save it in OpenOffice's format .odt. calibre can directly convert
-.odt files.
+Another alternative is to use the free LibreOffice. Open your .doc file in
+LibreOffice and save it as .docx, which can be directly converted in calibre.
 
 Convert TXT documents
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -783,10 +790,10 @@ calibre will automatically convert this .cbc file into a e-book with a Table of 
 EPUB advanced formatting demo
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Various advanced formatting for EPUB files is demonstrated in this `demo file <https://calibre-ebook.com/downloads/demos/demo.epub>`_.
+Various advanced formatting for EPUB files is demonstrated in this :download_file:`demo file <demos/demo.epub>`.
 The file was created from hand coded HTML using calibre and is meant to be used as a template for your own EPUB creation efforts.
 
-The source HTML it was created from is available `demo.zip <https://calibre-ebook.com/downloads/demos/demo.zip>`_. The settings used to create the
+The source HTML it was created from is available :download_file:`demo.zip <demos/demo.zip>`. The settings used to create the
 EPUB from the ZIP file are::
 
     ebook-convert demo.zip .epub -vv --authors "Kovid Goyal" --language en --level1-toc '//*[@class="title"]' --disable-font-rescaling --page-breaks-before / --no-default-epub-cover
@@ -800,10 +807,14 @@ Convert ODT documents
 calibre can directly convert ODT (OpenDocument Text) files. You should use styles to format your document and minimize the use of direct formatting.
 When inserting images into your document you need to anchor them to the paragraph, images anchored to a page will all end up in the front of the conversion.
 
-To enable automatic detection of chapters, you need to mark them with the build-in styles called 'Heading 1', 'Heading 2', ..., 'Heading 6' ('Heading 1' equates to the HTML tag <h1>, 'Heading 2' to <h2> etc). When you convert in calibre you can enter which style you used into the 'Detect chapters at' box. Example:
+To enable automatic detection of chapters, you need to mark them with the built-in styles called :guilabel:`Heading 1`,
+:guilabel:`Heading 2`, ..., :guilabel:`Heading 6` (:guilabel:`Heading 1` equates to the HTML tag ``<h1>``,
+:guilabel:`Heading 2` to ``<h2>``, etc).
+When you convert in calibre you can enter which style you used into the :guilabel:`Detect chapters at` box.
+Example:
 
-  * If you mark Chapters with style 'Heading 2', you have to set the 'Detect chapters at' box to ``//h:h2``
-  * For a nested TOC with Sections marked with 'Heading 2' and the Chapters marked with 'Heading 3' you need to enter ``//h:h2|//h:h3``. On the Convert - TOC page set the 'Level 1 TOC' box to ``//h:h2`` and the 'Level 2 TOC' box to ``//h:h3``.
+  * If you mark Chapters with style :guilabel:`Heading 2`, you have to set the 'Detect chapters at' box to ``//h:h2``
+  * For a nested TOC with Sections marked with :guilabel:`Heading 2` and the Chapters marked with :guilabel:`Heading 3` you need to enter ``//h:h2|//h:h3``. On the Convert - TOC page set the :guilabel:`Level 1 TOC` box to ``//h:h2`` and the :guilabel:`Level 2 TOC` box to ``//h:h3``.
 
 Well-known document properties (Title, Keywords, Description, Creator) are recognized and calibre will use the first image (not to small, and with good aspect-ratio) as the cover image.
 

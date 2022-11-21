@@ -6,70 +6,103 @@ __docformat__ = 'restructuredtext en'
 __license__   = 'GPL v3'
 
 import os
+import weakref
+from qt.core import (
+    QApplication, QCheckBox, QCursor, QDialog, QDialogButtonBox, QGridLayout,
+    QHBoxLayout, QIcon, QLabel, QLineEdit, QProgressBar, QPushButton,
+    QStackedLayout, Qt, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+    QWidget, pyqtSignal, QSplitter
+)
 from threading import Thread
 
-from qt.core import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QLabel, QPushButton,
-    QApplication, QTreeWidgetItem, QLineEdit, Qt, QSize,
-    QTimer, QIcon, QTextEdit, QSplitter, QWidget, QGridLayout, pyqtSignal)
-
+from calibre import as_unicode, prints
 from calibre.gui2.dialogs.confirm_delete import confirm
-from calibre.library.check_library import CheckLibrary, CHECKS
+from calibre.library.check_library import CHECKS, CheckLibrary
 from calibre.utils.recycle_bin import delete_file, delete_tree
-from calibre import prints, as_unicode
-from polyglot.builtins import unicode_type
 
 
 class DBCheck(QDialog):  # {{{
 
-    update_msg = pyqtSignal(object)
+    finished_vacuum = pyqtSignal()
 
     def __init__(self, parent, db):
         QDialog.__init__(self, parent)
-        self.l = QVBoxLayout()
-        self.setLayout(self.l)
-        self.l1 = QLabel(_('Vacuuming database to improve performance.') + ' ' +
-                         _('This will take a while, please wait...'))
-        self.setWindowTitle(_('Vacuuming...'))
-        self.l1.setWordWrap(True)
-        self.l.addWidget(self.l1)
-        self.msg = QLabel('')
-        self.update_msg.connect(self.msg.setText, type=Qt.ConnectionType.QueuedConnection)
-        self.l.addWidget(self.msg)
-        self.msg.setWordWrap(True)
-        self.resize(self.sizeHint() + QSize(100, 50))
+        self.vacuum_started = False
+        self.finished_vacuum.connect(self.accept, type=Qt.ConnectionType.QueuedConnection)
         self.error = None
-        self.db = db.new_api
         self.rejected = False
 
-    def start(self):
-        t = self.thread = Thread(target=self.vacuum)
-        t.daemon = True
-        t.start()
-        QTimer.singleShot(100, self.check)
-        self.exec_()
+        s = QStackedLayout(self)
+        s.setContentsMargins(0, 0, 0, 0)
+        one = QWidget(self)
+        s.addWidget(one)
+        two = QWidget(self)
+        s.addWidget(two)
 
-    def vacuum(self):
+        l = QVBoxLayout(one)
+        la = QLabel(_('Check database integrity and compact it for improved performance.'))
+        la.setWordWrap(True)
+        l.addWidget(la)
+
+        self.fts = f = QCheckBox(_('Also compact the Full text search database'))
+        l.addWidget(f)
+        la = QLabel('<p style="margin-left: 20px; font-style: italic">' + _(
+            'This can be a very slow and memory intensive operation,'
+            ' depending on the size of the Full text database.'))
+        la.setWordWrap(True)
+        l.addWidget(la)
+        l.addStretch(10)
+        self.bb1 = bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self)
+        l.addWidget(bb)
+        bb.accepted.connect(self.start)
+        bb.rejected.connect(self.reject)
+        self.setWindowTitle(_('Check the database file'))
+
+        l = QVBoxLayout(two)
+        la = QLabel(_('Vacuuming database to improve performance.') + ' ' +
+                         _('This will take a while, please wait...'))
+        la.setWordWrap(True)
+        l.addWidget(la)
+        pb = QProgressBar(self)
+        l.addWidget(pb)
+        pb.setMinimum(0), pb.setMaximum(0)
+        l.addStretch(10)
+        self.resize(self.sizeHint())
+        self.db = weakref.ref(db.new_api)
+
+    def start(self):
+        self.setWindowTitle(_('Vacuuming...'))
+        self.layout().setCurrentIndex(1)
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        self.vacuum_started = True
+        db = self.db()
+        t = self.thread = Thread(target=self.vacuum, args=(db, self.fts.isChecked()), daemon=True, name='VacuumDB')
+        t.start()
+
+    def vacuum(self, db, include_fts_db):
         try:
-            self.db.vacuum()
+            db.vacuum(include_fts_db)
         except Exception as e:
             import traceback
             self.error = (as_unicode(e), traceback.format_exc())
+        self.finished_vacuum.emit()
 
     def reject(self):
         self.rejected = True
+        if self.vacuum_started:
+            return
         return QDialog.reject(self)
 
-    def check(self):
-        if self.rejected:
+    def closeEvent(self, ev):
+        if self.vacuum_started:
+            ev.ignore()
             return
-        if self.thread.is_alive():
-            QTimer.singleShot(100, self.check)
-        else:
-            self.accept()
+        return super().closeEvent(ev)
 
     def break_cycles(self):
-        self.db = self.thread = None
+        if self.vacuum_started:
+            QApplication.restoreOverrideCursor()
+        self.thread = None
 
 # }}}
 
@@ -88,7 +121,7 @@ class CheckLibraryDialog(QDialog):
         self.db = db
 
         self.setWindowTitle(_('Check library -- Problems found'))
-        self.setWindowIcon(QIcon(I('debug.png')))
+        self.setWindowIcon(QIcon.ic('debug.png'))
 
         self._tl = QHBoxLayout()
         self.setLayout(self._tl)
@@ -99,6 +132,7 @@ class CheckLibraryDialog(QDialog):
         self.splitter.addWidget(self.helpw)
         self._tl.addWidget(self.splitter)
         self._layout = QVBoxLayout()
+        self._layout.setContentsMargins(0, 0, 0, 0)
         self.left.setLayout(self._layout)
         self.helpw.setReadOnly(True)
         self.helpw.setText(_('''\
@@ -234,12 +268,12 @@ class CheckLibraryDialog(QDialog):
             probs += self.problem_count[c]
         if probs == 0:
             return False
-        self.exec_()
+        self.exec()
         return True
 
     def accept(self):
-        self.db.new_api.set_pref('check_library_ignore_extensions', unicode_type(self.ext_ignores.text()))
-        self.db.new_api.set_pref('check_library_ignore_names', unicode_type(self.name_ignores.text()))
+        self.db.new_api.set_pref('check_library_ignore_extensions', str(self.ext_ignores.text()))
+        self.db.new_api.set_pref('check_library_ignore_names', str(self.name_ignores.text()))
         QDialog.accept(self)
 
     def box_to_list(self, txt):
@@ -247,8 +281,8 @@ class CheckLibraryDialog(QDialog):
 
     def run_the_check(self):
         checker = CheckLibrary(self.db.library_path, self.db)
-        checker.scan_library(self.box_to_list(unicode_type(self.name_ignores.text())),
-                             self.box_to_list(unicode_type(self.ext_ignores.text())))
+        checker.scan_library(self.box_to_list(str(self.name_ignores.text())),
+                             self.box_to_list(str(self.ext_ignores.text())))
 
         plaintext = []
 
@@ -267,25 +301,25 @@ class CheckLibraryDialog(QDialog):
                 tl.setData(1, Qt.ItemDataRole.UserRole, self.is_fixable)
                 tl.setText(1, _('(fixable)'))
                 tl.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
-                tl.setCheckState(1, False)
+                tl.setCheckState(1, Qt.CheckState.Unchecked)
             else:
                 tl.setData(1, Qt.ItemDataRole.UserRole, self.is_deletable)
                 tl.setData(2, Qt.ItemDataRole.UserRole, self.is_deletable)
                 tl.setText(1, _('(deletable)'))
                 tl.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
-                tl.setCheckState(1, False)
+                tl.setCheckState(1, Qt.CheckState.Unchecked)
             if attr == 'extra_covers':
                 tl.setData(2, Qt.ItemDataRole.UserRole, self.is_deletable)
                 tl.setText(2, _('(deletable)'))
                 tl.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
-                tl.setCheckState(2, False)
+                tl.setCheckState(2, Qt.CheckState.Unchecked)
             self.top_level_items[attr] = tl
 
             for problem in list_:
                 it = Item()
                 if checkable:
                     it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
-                    it.setCheckState(2, False)
+                    it.setCheckState(2, Qt.CheckState.Unchecked)
                     it.setData(2, Qt.ItemDataRole.UserRole, self.is_deletable)
                 else:
                     it.setFlags(Qt.ItemFlag.ItemIsEnabled)
@@ -319,6 +353,8 @@ class CheckLibraryDialog(QDialog):
 
     def item_changed(self, item, column):
         def set_delete_boxes(node, col, to_what):
+            if isinstance(to_what, bool):
+                to_what = Qt.CheckState.Checked if to_what else Qt.CheckState.Unchecked
             self.log.blockSignals(True)
             if col:
                 node.setCheckState(col, to_what)
@@ -358,7 +394,7 @@ class CheckLibraryDialog(QDialog):
                     set_delete_boxes(item, column, item.checkState(column))
                     if column == 2:
                         self.log.blockSignals(True)
-                        item.setCheckState(1, False)
+                        item.setCheckState(1, Qt.CheckState.Unchecked)
                         self.log.blockSignals(False)
             else:
                 item.setCheckState(column, Qt.CheckState.Unchecked)
@@ -409,7 +445,7 @@ class CheckLibraryDialog(QDialog):
         for it in items:
             if it.checkState(2) == Qt.CheckState.Checked:
                 try:
-                    p = os.path.join(self.db.library_path, unicode_type(it.text(2)))
+                    p = os.path.join(self.db.library_path, str(it.text(2)))
                     if os.path.isdir(p):
                         delete_tree(p)
                     else:
@@ -417,7 +453,7 @@ class CheckLibraryDialog(QDialog):
                 except:
                     prints('failed to delete',
                             os.path.join(self.db.library_path,
-                                unicode_type(it.text(2))))
+                                str(it.text(2))))
         self.run_the_check()
 
     def fix_missing_formats(self):
@@ -454,7 +490,7 @@ class CheckLibraryDialog(QDialog):
             attr = check[0]
             fixable = check[3]
             tl = self.top_level_items[attr]
-            if fixable and tl.checkState(1):
+            if fixable and tl.checkState(1) == Qt.CheckState.Checked:
                 func = getattr(self, 'fix_' + attr, None)
                 if func is not None and callable(func):
                     func()
@@ -465,7 +501,8 @@ class CheckLibraryDialog(QDialog):
 
 
 if __name__ == '__main__':
-    app = QApplication([])
-    from calibre.library import db
-    d = CheckLibraryDialog(None, db())
-    d.exec_()
+    from calibre.gui2 import Application
+    app = Application([])
+    from calibre.library import db as dbconn
+    d = DBCheck(None, dbconn())
+    d.exec()

@@ -1,4 +1,3 @@
-
 '''
 Make strings safe for use as ASCII filenames, while trying to preserve as much
 meaning as possible.
@@ -16,7 +15,7 @@ from calibre.constants import (
     filesystem_encoding, iswindows, preferred_encoding, ismacos
 )
 from calibre.utils.localization import get_udc
-from polyglot.builtins import iteritems, itervalues, unicode_type, range
+from polyglot.builtins import iteritems, itervalues
 
 
 def ascii_text(orig):
@@ -24,7 +23,7 @@ def ascii_text(orig):
     try:
         ascii = udc.decode(orig)
     except Exception:
-        if isinstance(orig, unicode_type):
+        if isinstance(orig, str):
             orig = orig.encode('ascii', 'replace')
         ascii = orig.decode(preferred_encoding, 'replace')
     if isinstance(ascii, bytes):
@@ -208,7 +207,7 @@ def case_preserving_open_file(path, mode='wb', mkdir_mode=0o777):
         cl = fname.lower()
         try:
             candidates = [c for c in os.listdir(cpath) if c.lower() == cl]
-        except EnvironmentError:
+        except OSError:
             # The containing directory, somehow disappeared?
             candidates = []
         if len(candidates) == 1:
@@ -259,7 +258,7 @@ def samefile(src, dst):
         # Unix
         try:
             return os.path.samefile(src, dst)
-        except EnvironmentError:
+        except OSError:
             return False
 
     # All other platforms: check for same pathname.
@@ -294,13 +293,13 @@ def windows_hardlink(src, dest):
         try:
             if windows_get_size(dest) == src_size:
                 return
-        except EnvironmentError:
+        except OSError:
             pass
         time.sleep(0.3)
 
     sz = windows_get_size(dest)
     if sz != src_size:
-        msg = 'Creating hardlink from %s to %s failed: %%s' % (src, dest)
+        msg = f'Creating hardlink from {src} to {dest} failed: %s'
         raise OSError(msg % ('hardlink size: %d not the same as source size' % sz))
 
 
@@ -309,7 +308,7 @@ def windows_fast_hardlink(src, dest):
     winutil.create_hard_link(dest, src)
     ssz, dsz = windows_get_size(src), windows_get_size(dest)
     if ssz != dsz:
-        msg = 'Creating hardlink from %s to %s failed: %%s' % (src, dest)
+        msg = f'Creating hardlink from {src} to {dest} failed: %s'
         raise OSError(msg % ('hardlink size: %d not the same as source size: %s' % (dsz, ssz)))
 
 
@@ -320,7 +319,7 @@ def windows_nlinks(path):
     return winutil.nlinks(path)
 
 
-class WindowsAtomicFolderMove(object):
+class WindowsAtomicFolderMove:
 
     '''
     Move all the files inside a specified folder in an atomic fashion,
@@ -575,7 +574,7 @@ def copytree_using_links(path, dest, dest_is_parent=True, filecopyfunc=copyfile)
     hardlink = get_hardlink_function(path, dest)
     try:
         os.makedirs(dest)
-    except EnvironmentError as e:
+    except OSError as e:
         if e.errno != errno.EEXIST:
             raise
     for dirpath, dirnames, filenames in os.walk(path):
@@ -584,7 +583,7 @@ def copytree_using_links(path, dest, dest_is_parent=True, filecopyfunc=copyfile)
         for dname in dirnames:
             try:
                 os.mkdir(os.path.join(dest_base, dname))
-            except EnvironmentError as e:
+            except OSError as e:
                 if e.errno != errno.EEXIST:
                     raise
         for fname in filenames:
@@ -605,6 +604,25 @@ if iswindows:
         if len(path) > 200 and os.path.isabs(path) and not path.startswith(long_path_prefix):
             path = long_path_prefix + os.path.normpath(path)
         return path
+
+    def is_fat_filesystem(path):
+        try:
+            from calibre_extensions.winutil import filesystem_type_name
+        except ImportError:
+            return False
+        if not path:
+            return False
+        drive = os.path.abspath(path)[0].upper()
+        try:
+            tn = filesystem_type_name(f'{drive}:\\')
+        except OSError:
+            return False
+        # Values I have seen: FAT32, exFAT, NTFS
+        return tn.upper().startswith('FAT')
 else:
     def make_long_path_useable(path):
         return path
+
+    def is_fat_filesystem(path):
+        # TODO: Implement for Linux and macOS
+        return False

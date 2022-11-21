@@ -1,34 +1,46 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2020, Kovid Goyal <kovid at kovidgoyal.net>
 
 import codecs
 import json
 import os
-from functools import partial
+import re
+from functools import lru_cache, partial
 from qt.core import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QCursor, QDateTime,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTime,
     QDialog, QDialogButtonBox, QFont, QFormLayout, QFrame, QHBoxLayout, QIcon,
-    QKeySequence, QLabel, QMenu, QPalette, QPlainTextEdit, QSize, QSplitter, Qt,
-    QTextBrowser, QTimer, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+    QKeySequence, QLabel, QLocale, QMenu, QPalette, QPlainTextEdit, QSize, QSplitter,
+    Qt, QTextBrowser, QTimer, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
     QWidget, pyqtSignal
 )
 from urllib.parse import quote
 
 from calibre import prepare_string_for_xml
-from calibre.ebooks.metadata import authors_to_string, fmt_sidx
+from calibre.constants import (
+    builtin_colors_dark, builtin_colors_light, builtin_decorations
+)
 from calibre.db.backend import FTSQueryError
-from calibre.gui2 import Application, choose_save_file, config, error_dialog, gprefs
+from calibre.ebooks.metadata import authors_to_string, fmt_sidx
+from calibre.gui2 import (
+    Application, choose_save_file, config, error_dialog, gprefs, is_dark_theme,
+    safe_open_url
+)
 from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.gui2.viewer.widgets import ResultsDelegate, SearchBox
-from calibre.gui2.widgets2 import Dialog
+from calibre.gui2.widgets import BusyCursor
+from calibre.gui2.widgets2 import Dialog, RightClickButton
+
+
+def render_timestamp(ts):
+    date = QDateTime.fromString(ts, Qt.DateFormat.ISODate).toLocalTime()
+    loc = QLocale.system()
+    return loc.toString(date, loc.dateTimeFormat(QLocale.FormatType.ShortFormat))
 
 
 # rendering {{{
-
 def render_highlight_as_text(hl, lines, as_markdown=False, link_prefix=None):
     lines.append(hl['highlighted_text'])
-    date = QDateTime.fromString(hl['timestamp'], Qt.DateFormat.ISODate).toLocalTime().toString(Qt.DateFormat.SystemLocaleShortDate)
+    date = render_timestamp(hl['timestamp'])
     if as_markdown and link_prefix:
         cfi = hl['start_cfi']
         spine_index = (1 + hl['spine_index']) * 2
@@ -49,7 +61,7 @@ def render_highlight_as_text(hl, lines, as_markdown=False, link_prefix=None):
 
 def render_bookmark_as_text(b, lines, as_markdown=False, link_prefix=None):
     lines.append(b['title'])
-    date = QDateTime.fromString(b['timestamp'], Qt.DateFormat.ISODate).toLocalTime().toString(Qt.DateFormat.SystemLocaleShortDate)
+    date = render_timestamp(b['timestamp'])
     if as_markdown and link_prefix and b['pos_type'] == 'epubcfi':
         link = (link_prefix + quote(b['pos'])).replace(')', '%29')
         date = f'[{date}]({link})'
@@ -62,11 +74,57 @@ def render_bookmark_as_text(b, lines, as_markdown=False, link_prefix=None):
     lines.append('')
 
 
+url_prefixes = 'http', 'https'
+url_delimiters = (
+    '\x00-\x09\x0b-\x20\x7f-\xa0\xad\u0600-\u0605\u061c\u06dd\u070f\u08e2\u1680\u180e\u2000-\u200f\u2028-\u202f'
+    '\u205f-\u2064\u2066-\u206f\u3000\ud800-\uf8ff\ufeff\ufff9-\ufffb\U000110bd\U000110cd\U00013430-\U00013438'
+    '\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0001\U000e0020-\U000e007f\U000f0000-\U000ffffd\U00100000-\U0010fffd'
+)
+url_pattern = r'\b(?:{})://[^{}]{{3,}}'.format('|'.join(url_prefixes), url_delimiters)
+
+
+@lru_cache(maxsize=2)
+def url_pat():
+    return re.compile(url_pattern, flags=re.I)
+
+
+closing_bracket_map = {'(': ')', '[': ']', '{': '}', '<': '>', '*': '*', '"': '"', "'": "'"}
+
+
+def url(text: str, s: int, e: int):
+    while text[e - 1] in '.,?!' and e > 1:  # remove trailing punctuation
+        e -= 1
+    # truncate url at closing bracket/quote
+    if s > 0 and e <= len(text) and text[s-1] in closing_bracket_map:
+        q = closing_bracket_map[text[s-1]]
+        idx = text.find(q, s)
+        if idx > s:
+            e = idx
+    return s, e
+
+
+def render_note_line(line):
+    urls = []
+    for m in url_pat().finditer(line):
+        s, e = url(line, m.start(), m.end())
+        urls.append((s, e))
+    if not urls:
+        yield prepare_string_for_xml(line)
+        return
+    pos = 0
+    for (s, e) in urls:
+        if s > pos:
+            yield prepare_string_for_xml(line[pos:s])
+        yield '<a href="{0}">{0}</a>'.format(prepare_string_for_xml(line[s:e], True))
+    if urls[-1][1] < len(line):
+        yield prepare_string_for_xml(line[urls[-1][1]:])
+
+
 def render_notes(notes, tag='p'):
     current_lines = []
     for line in notes.splitlines():
         if line:
-            current_lines.append(line)
+            current_lines.append(''.join(render_note_line(line)))
         else:
             if current_lines:
                 yield '<{0}>{1}</{0}>'.format(tag, '\n'.join(current_lines))
@@ -126,14 +184,43 @@ def sorted_items(items):
             cfi = x.get('start_cfi')
             if cfi:
                 spine_idx = x.get('spine_index', def_spine)
-                cfi = f'/{spine_idx}/{cfi}'
-                return cfi_sort_key(cfi, only_path=False)
+                cfi = f'/{spine_idx}{cfi}'
+                return cfi_sort_key(cfi)
         elif atype == 'bookmark':
             if x.get('pos_type') == 'epubcfi':
                 return cfi_sort_key(x['pos'], only_path=False)
         return defval
 
     return sorted(items, key=sort_key)
+
+
+def css_for_highlight_style(style):
+    is_dark = is_dark_theme()
+    kind = style.get('kind')
+    ans = ''
+    if kind == 'color':
+        key = 'dark' if is_dark else 'light'
+        val = style.get(key)
+        if val is None:
+            which = style.get('which')
+            val = (builtin_colors_dark if is_dark else builtin_colors_light).get(which)
+        if val is None:
+            val = style.get('background-color')
+        if val is not None:
+            ans = f'background-color: {val}'
+    elif 'background-color' in style:
+        ans = 'background-color: ' + style['background-color']
+        if 'color' in style:
+            ans += '; color: ' + style["color"]
+    elif kind == 'decoration':
+        which = style.get('which')
+        if which is not None:
+            q = builtin_decorations.get(which)
+            if q is not None:
+                ans = q
+        else:
+            ans = '; '.join(f'{k}: {v}' for k, v in style.items())
+    return ans
 
 
 class Export(Dialog):  # {{{
@@ -167,10 +254,10 @@ class Export(Dialog):  # {{{
         self.bb.addButton(QDialogButtonBox.StandardButton.Cancel)
         b = self.bb.addButton(_('Copy to clipboard'), QDialogButtonBox.ButtonRole.ActionRole)
         b.clicked.connect(self.copy_to_clipboard)
-        b.setIcon(QIcon(I('edit-copy.png')))
+        b.setIcon(QIcon.ic('edit-copy.png'))
         b = self.bb.addButton(_('Save to file'), QDialogButtonBox.ButtonRole.ActionRole)
         b.clicked.connect(self.save_to_file)
-        b.setIcon(QIcon(I('save.png')))
+        b.setIcon(QIcon.ic('save.png'))
 
     def save_format_pref(self):
         self.prefs[self.pref_name] = self.export_format.currentData()
@@ -242,15 +329,6 @@ def current_db():
     return (getattr(current_db, 'ans', None) or get_gui().current_db).new_api
 
 
-class BusyCursor(object):
-
-    def __enter__(self):
-        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
-
-    def __exit__(self, *args):
-        QApplication.restoreOverrideCursor()
-
-
 class ResultsList(QTreeWidget):
 
     current_result_changed = pyqtSignal(object)
@@ -284,18 +362,20 @@ class ResultsList(QTreeWidget):
         items = self.selectedItems()
         m = QMenu(self)
         if isinstance(result, dict):
-            m.addAction(_('Open in viewer'), partial(self.item_activated, item))
-            m.addAction(_('Show in calibre'), partial(self.show_in_calibre, item))
+            m.addAction(QIcon.ic('viewer.png'), _('Open in viewer'), partial(self.item_activated, item))
+            m.addAction(QIcon.ic('lt.png'), _('Show in calibre'), partial(self.show_in_calibre, item))
             if result.get('annotation', {}).get('type') == 'highlight':
-                m.addAction(_('Edit notes'), partial(self.edit_notes, item))
+                m.addAction(QIcon.ic('modified.png'), _('Edit notes'), partial(self.edit_notes, item))
         if items:
             m.addSeparator()
-            m.addAction(ngettext('Export selected item', 'Export {} selected items', len(items)).format(len(items)), self.export_requested.emit)
-            m.addAction(ngettext('Delete selected item', 'Delete {} selected items', len(items)).format(len(items)), self.delete_requested.emit)
+            m.addAction(QIcon.ic('save.png'),
+                        ngettext('Export selected item', 'Export {} selected items', len(items)).format(len(items)), self.export_requested.emit)
+            m.addAction(QIcon.ic('trash.png'),
+                        ngettext('Delete selected item', 'Delete {} selected items', len(items)).format(len(items)), self.delete_requested.emit)
         m.addSeparator()
-        m.addAction(_('Expand all'), self.expandAll)
-        m.addAction(_('Collapse all'), self.collapseAll)
-        m.exec_(self.mapToGlobal(pos))
+        m.addAction(QIcon.ic('plus.png'), _('Expand all'), self.expandAll)
+        m.addAction(QIcon.ic('minus.png'), _('Collapse all'), self.collapseAll)
+        m.exec(self.mapToGlobal(pos))
 
     def edit_notes(self, item):
         r = item.data(0, Qt.ItemDataRole.UserRole)
@@ -425,7 +505,7 @@ class Restrictions(QWidget):
         v.addLayout(h)
         self.rla = QLabel(_('Restrict to') + ': ')
         h.addWidget(self.rla)
-        la = QLabel(_('Types:'))
+        la = QLabel(_('Type:'))
         h.addWidget(la)
         self.types_box = tb = QComboBox(self)
         tb.la = la
@@ -455,11 +535,11 @@ class Restrictions(QWidget):
 
     def update_book_restrictions_text(self):
         if not self.restrict_to_book_ids:
-            t = _('Show results from only selected books')
+            t = _('&Show results from only selected books')
         else:
             t = ngettext(
-                'Show results from only the selected book',
-                'Show results from only the {} selected books',
+                '&Show results from only the selected book',
+                '&Show results from only the {} selected books',
                 len(self.restrict_to_book_ids)).format(len(self.restrict_to_book_ids))
         self.restrict_to_books_cb.setText(t)
 
@@ -505,7 +585,7 @@ class Restrictions(QWidget):
         tb.addItem(' ', ' ')
         for user_type, user in db.all_annotation_users():
             display_name = friendly_username(user_type, user)
-            tb.addItem(display_name, '{}:{}'.format(user_type, user))
+            tb.addItem(display_name, f'{user_type}:{user}')
         if before:
             row = tb.findData(before)
             if row > -1:
@@ -544,14 +624,14 @@ class BrowsePanel(QWidget):
         self.next_button = nb = QToolButton(self)
         h.addWidget(nb)
         nb.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        nb.setIcon(QIcon(I('arrow-down.png')))
+        nb.setIcon(QIcon.ic('arrow-down.png'))
         nb.clicked.connect(self.show_next)
         nb.setToolTip(_('Find next match'))
 
         self.prev_button = nb = QToolButton(self)
         h.addWidget(nb)
         nb.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        nb.setIcon(QIcon(I('arrow-up.png')))
+        nb.setIcon(QIcon.ic('arrow-up.png'))
         nb.clicked.connect(self.show_previous)
         nb.setToolTip(_('Find previous match'))
 
@@ -697,7 +777,10 @@ class DetailsPanel(QWidget):
         self.show_result(None)
 
     def link_clicked(self, qurl):
-        getattr(self, qurl.host())()
+        if qurl.scheme() == 'calibre':
+            getattr(self, qurl.host())()
+        else:
+            safe_open_url(qurl)
 
     def open_result(self):
         if self.current_result is not None:
@@ -743,12 +826,13 @@ class DetailsPanel(QWidget):
         series_text = ''
         if series:
             use_roman_numbers = config['use_roman_numerals_for_series_number']
-            series_text = '{0} of {1}'.format(fmt_sidx(sidx, use_roman=use_roman_numbers), series)
+            series_text = f'{fmt_sidx(sidx, use_roman=use_roman_numbers)} of {series}'
         annot = r['annotation']
         atype = annotation_title(annot['type'], singular=True)
         book_format = r['format']
         annot_text = ''
         a = prepare_string_for_xml
+        highlight_css = ''
 
         paras = []
 
@@ -758,7 +842,8 @@ class DetailsPanel(QWidget):
         if annot['type'] == 'bookmark':
             p(annot['title'])
         elif annot['type'] == 'highlight':
-            p(annot['highlighted_text'])
+            for line in annot['highlighted_text'].splitlines():
+                p(line)
             notes = annot.get('notes')
             if notes:
                 paras.append('<h4>{} (<a title="{}" href="calibre://edit_result">{}</a>)</h4>'.format(
@@ -767,9 +852,11 @@ class DetailsPanel(QWidget):
             else:
                 paras.append('<p><a title="{}" href="calibre://edit_result">{}</a></p>'.format(
                     _('Add notes to this highlight'), _('Add notes')))
+            if 'style' in annot:
+                highlight_css = css_for_highlight_style(annot['style'])
 
         annot_text += '\n'.join(paras)
-        date = QDateTime.fromString(annot['timestamp'], Qt.DateFormat.ISODate).toLocalTime().toString(Qt.DateFormat.SystemLocaleShortDate)
+        date = render_timestamp(annot['timestamp'])
 
         text = '''
         <style>a {{ text-decoration: none }}</style>
@@ -778,6 +865,7 @@ class DetailsPanel(QWidget):
         <div style="text-align: center">{series}</div>
         <div>&nbsp;</div>
         <div>&nbsp;</div>
+
         <div>{dt}: {date}</div>
         <div>{ut}: {user}</div>
         <div>
@@ -785,12 +873,12 @@ class DetailsPanel(QWidget):
             <span>\xa0\xa0\xa0</span>
             <a title="{sictt}" href="calibre://show_in_library">{sic}</a>
         </div>
-        <h3 style="text-align: left">{atype}</h3>
+        <h3 style="text-align: left; {highlight_css}">{atype}</h3>
         {text}
         '''.format(
             title=a(title), authors=a(authors), series=a(series_text), book_format=a(book_format),
             atype=a(atype), text=annot_text, dt=_('Date'), date=a(date), ut=a(_('User')),
-            user=a(friendly_username(r['user_type'], r['user'])),
+            user=a(friendly_username(r['user_type'], r['user'])), highlight_css=highlight_css,
             ov=a(_('Open in viewer')), sic=a(_('Show in calibre')),
             ovtt=a(_('Open the book at this annotation in the calibre E-book viewer')),
             sictt=(_('Show this book in the main calibre book list')),
@@ -829,7 +917,7 @@ class AnnotationsBrowser(Dialog):
         self.current_restriction = None
         Dialog.__init__(self, _('Annotations browser'), 'library-annotations-browser', parent=parent, default_buttons=QDialogButtonBox.StandardButton.Close)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
-        self.setWindowIcon(QIcon(I('highlight.png')))
+        self.setWindowIcon(QIcon.ic('highlight.png'))
 
     def do_open_annotation(self, book_id, fmt, annot):
         atype = annot['type']
@@ -845,12 +933,12 @@ class AnnotationsBrowser(Dialog):
             return Dialog.keyPressEvent(self, ev)
 
     def setup_ui(self):
-        self.use_stemmer = us = QCheckBox(_('Match on related English words'))
+        self.use_stemmer = us = QCheckBox(_('&Match on related words'))
         us.setChecked(gprefs['browse_annots_use_stemmer'])
         us.setToolTip('<p>' + _(
-            'With this option searching for words will also match on any related English words. For'
-            ' example: <i>correction</i> matches <i>correcting</i> and <i>corrected</i> as well'))
-        us.stateChanged.connect(lambda state: gprefs.set('browse_annots_use_stemmer', state != Qt.CheckState.Unchecked))
+            'With this option searching for words will also match on any related words (supported in several languages). For'
+            ' example, in the English language: <i>correction</i> matches <i>correcting</i> and <i>corrected</i> as well'))
+        us.stateChanged.connect(lambda state: gprefs.set('browse_annots_use_stemmer', state != Qt.CheckState.Unchecked.value))
 
         l = QVBoxLayout(self)
 
@@ -877,17 +965,24 @@ class AnnotationsBrowser(Dialog):
         h = QHBoxLayout()
         l.addLayout(h)
         h.addWidget(us), h.addStretch(10), h.addWidget(self.bb)
-        self.delete_button = b = self.bb.addButton(_('Delete all selected'), QDialogButtonBox.ButtonRole.ActionRole)
+        self.delete_button = b = self.bb.addButton(_('&Delete all selected'), QDialogButtonBox.ButtonRole.ActionRole)
         b.setToolTip(_('Delete the selected annotations'))
-        b.setIcon(QIcon(I('trash.png')))
+        b.setIcon(QIcon.ic('trash.png'))
         b.clicked.connect(self.delete_selected)
-        self.export_button = b = self.bb.addButton(_('Export all selected'), QDialogButtonBox.ButtonRole.ActionRole)
+        self.export_button = b = self.bb.addButton(_('&Export all selected'), QDialogButtonBox.ButtonRole.ActionRole)
         b.setToolTip(_('Export the selected annotations'))
-        b.setIcon(QIcon(I('save.png')))
+        b.setIcon(QIcon.ic('save.png'))
         b.clicked.connect(self.export_selected)
-        self.refresh_button = b = self.bb.addButton(_('Refresh'), QDialogButtonBox.ButtonRole.ActionRole)
+        self.refresh_button = b = RightClickButton(self.bb)
+        self.bb.addButton(b, QDialogButtonBox.ButtonRole.ActionRole)
+        b.setText(_('&Refresh'))
+        b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.refresh_menu = m = QMenu(self)
+        m.addAction(_('Rebuild search index')).triggered.connect(self.rebuild)
+        b.setMenu(m)
         b.setToolTip(_('Refresh annotations in case they have been changed since this window was opened'))
-        b.setIcon(QIcon(I('restart.png')))
+        b.setIcon(QIcon.ic('restart.png'))
+        b.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
         b.clicked.connect(self.refresh)
 
     def delete_selected(self):
@@ -902,7 +997,7 @@ class AnnotationsBrowser(Dialog):
         if not annots:
             return error_dialog(self, _('No selected annotations'), _(
                 'No annotations have been selected'), show=True)
-        Export(annots, self).exec_()
+        Export(annots, self).exec()
 
     def delete_annotations(self, ids):
         if confirm(ngettext(
@@ -923,7 +1018,7 @@ class AnnotationsBrowser(Dialog):
                 'Editing is only supported for the notes associated with highlights'), show=True)
         notes = annot.get('notes')
         d = EditNotes(notes, self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             notes = d.notes
             if notes and notes.strip():
                 annot['notes'] = notes.strip()
@@ -936,7 +1031,7 @@ class AnnotationsBrowser(Dialog):
     def show_dialog(self, restrict_to_book_ids=None):
         if self.parent() is None:
             self.browse_panel.effective_query_changed()
-            self.exec_()
+            self.exec()
         else:
             self.reinitialize(restrict_to_book_ids)
             self.show()
@@ -952,11 +1047,16 @@ class AnnotationsBrowser(Dialog):
         self.current_restriction = restrict_to_book_ids
         self.browse_panel.re_initialize(restrict_to_book_ids or set())
 
-    def refresh(self, current_restriction):
+    def refresh(self):
         state = self.browse_panel.save_tree_state()
         self.browse_panel.re_initialize(self.current_restriction)
         self.browse_panel.effective_query_changed()
         self.browse_panel.restore_tree_state(state)
+
+    def rebuild(self):
+        with BusyCursor():
+            current_db().reindex_annotations()
+        self.refresh()
 
 
 if __name__ == '__main__':

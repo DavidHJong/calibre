@@ -1,17 +1,15 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 
 
 __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from polyglot.builtins import map, unicode_type
 from calibre.utils.fonts.utils import get_all_font_names
 from calibre.utils.fonts.sfnt.container import UnsupportedFont
 
 
-class FontMetrics(object):
+class FontMetrics:
 
     '''
     Get various metrics for the specified sfnt. All the metrics are returned in
@@ -21,14 +19,14 @@ class FontMetrics(object):
 
     def __init__(self, sfnt):
         for table in (b'head', b'hhea', b'hmtx', b'cmap', b'OS/2', b'post',
-                      b'name'):
+                      b'name', b'maxp'):
             if table not in sfnt:
                 raise UnsupportedFont('This font has no %s table'%table)
         self.sfnt = sfnt
 
         self.head = self.sfnt[b'head']
         hhea = self.sfnt[b'hhea']
-        hhea.read_data(self.sfnt[b'hmtx'])
+        hhea.read_data(self.sfnt[b'hmtx'], self.sfnt[b'maxp'].num_glyphs)
         self.ascent = hhea.ascender
         self.descent = hhea.descender
         self.bbox = (self.head.x_min, self.head.y_min, self.head.x_max,
@@ -94,7 +92,7 @@ class FontMetrics(object):
         Return the advance widths (in pixels) for all glyphs corresponding to
         the characters in string at the specified pixel_size and stretch factor.
         '''
-        if not isinstance(string, unicode_type):
+        if not isinstance(string, str):
             raise ValueError('Must supply a unicode object')
         chars = tuple(map(ord, string))
         cmap = self.cmap.get_character_map(chars)

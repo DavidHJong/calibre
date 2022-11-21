@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -15,7 +14,6 @@ from qt.core import (
 
 from calibre.constants import __version__
 from calibre.gui2.dialogs.message_box import ViewLog
-from polyglot.builtins import unicode_type
 
 Question = namedtuple('Question', 'payload callback cancel_callback '
         'title msg html_log log_viewer_title log_is_file det_msg '
@@ -59,7 +57,7 @@ class Icon(QWidget):
         elif icon is None:
             self.icon = self.default_icon
         else:
-            self.icon = QIcon(I(icon)).pixmap(self.sizeHint())
+            self.icon = QIcon.ic(icon).pixmap(self.sizeHint())
         self.update()
 
     def sizeHint(self):
@@ -115,7 +113,7 @@ class ProceedQuestion(QWidget):
         self.bb.accepted.connect(self.accept)
         self.bb.rejected.connect(self.reject)
         self.log_button = self.bb.addButton(_('View log'), QDialogButtonBox.ButtonRole.ActionRole)
-        self.log_button.setIcon(QIcon(I('debug.png')))
+        self.log_button.setIcon(QIcon.ic('debug.png'))
         self.log_button.clicked.connect(self.show_log)
         self.copy_button = self.bb.addButton(_('&Copy to clipboard'),
                 QDialogButtonBox.ButtonRole.ActionRole)
@@ -171,9 +169,9 @@ class ProceedQuestion(QWidget):
     def copy_to_clipboard(self, *args):
         QApplication.clipboard().setText(
                 'calibre, version %s\n%s: %s\n\n%s' %
-                (__version__, unicode_type(self.windowTitle()),
-                    unicode_type(self.msg_label.text()),
-                    unicode_type(self.det_msg.toPlainText())))
+                (__version__, str(self.windowTitle()),
+                    str(self.msg_label.text()),
+                    str(self.det_msg.toPlainText())))
         self.copy_button.setText(_('Copied'))
 
     def action_clicked(self):
@@ -211,7 +209,7 @@ class ProceedQuestion(QWidget):
         self.show_question()
 
     def toggle_det_msg(self, *args):
-        vis = unicode_type(self.det_msg_toggle.text()) == self.hide_det_msg
+        vis = str(self.det_msg_toggle.text()) == self.hide_det_msg
         self.det_msg_toggle.setText(self.show_det_msg if vis else
                 self.hide_det_msg)
         self.det_msg.setVisible(not vis)
@@ -354,7 +352,7 @@ class ProceedQuestion(QWidget):
         :param focus_action: If True, the action button will be focused instead of the Yes button
         :param show_det: If True, the Detailed message will be shown initially
         :param show_ok: If True, OK will be shown instead of YES/NO
-        :param icon: The icon to be used for this popop (defaults to question mark). Can be either a QIcon or a string to be used with I()
+        :param icon: The icon to be used for this popop (defaults to question mark). Can be either a QIcon or a string to be used with QIcon.ic()
         :log_viewer_unique_name: If set, ViewLog will remember/reuse its size for this name in calibre.gui2.gprefs
         '''
         question = Question(
@@ -389,7 +387,7 @@ class ProceedQuestion(QWidget):
 
     def animated_paint(self, painter):
         top = (1 - self._show_fraction) * self.height()
-        painter.drawPixmap(0, top, self.rendered_pixmap)
+        painter.drawPixmap(0, int(top), self.rendered_pixmap)
 
     def paint_background(self, painter):
         br = 12  # border_radius
@@ -423,7 +421,7 @@ def main():
             det_msg='details shown first, with a long line to test wrapping of text and width layout',
             show_det=True, show_ok=True)
     QTimer.singleShot(10, doit)
-    app.exec_()
+    app.exec()
 
 
 if __name__ == '__main__':

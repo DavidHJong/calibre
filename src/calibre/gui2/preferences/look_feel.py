@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -7,24 +6,26 @@ __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import json
-
 from collections import defaultdict
 from threading import Thread
+from functools import partial
 
 from qt.core import (
     QApplication, QFont, QFontInfo, QFontDialog, QColorDialog, QPainter, QDialog,
-    QAbstractListModel, Qt, QIcon, QKeySequence, QColor, pyqtSignal, QCursor,
+    QAbstractListModel, Qt, QIcon, QKeySequence, QColor, pyqtSignal, QHeaderView, QListWidgetItem,
     QWidget, QSizePolicy, QBrush, QPixmap, QSize, QPushButton, QVBoxLayout, QItemSelectionModel,
     QTableWidget, QTableWidgetItem, QLabel, QFormLayout, QLineEdit, QComboBox, QDialogButtonBox
 )
 
 from calibre import human_readable
-from calibre.ebooks.metadata.book.render import DEFAULT_AUTHOR_LINK
 from calibre.constants import ismacos, iswindows
+from calibre.db.categories import is_standard_category
+from calibre.ebooks.metadata.book.render import DEFAULT_AUTHOR_LINK
 from calibre.ebooks.metadata.sources.prefs import msprefs
-from calibre.gui2 import default_author_link
+from calibre.gui2.custom_column_widgets import get_field_list as em_get_field_list
+from calibre.gui2 import default_author_link, icon_resource_manager, choose_save_file, choose_files
 from calibre.gui2.dialogs.template_dialog import TemplateDialog
-from calibre.gui2.preferences import ConfigWidgetBase, test_widget, CommaSeparatedList
+from calibre.gui2.preferences import ConfigWidgetBase, test_widget
 from calibre.gui2.preferences.look_feel_ui import Ui_Form
 from calibre.gui2 import config, gprefs, qt_app, open_local_file, question_dialog, error_dialog
 from calibre.utils.localization import (available_translations,
@@ -35,19 +36,11 @@ from calibre.gui2.book_details import get_field_list
 from calibre.gui2.dialogs.quickview import get_qv_field_list
 from calibre.gui2.preferences.coloring import EditRules
 from calibre.gui2.library.alternate_views import auto_height, CM_TO_INCH
+from calibre.gui2.widgets import BusyCursor
 from calibre.gui2.widgets2 import Dialog
 from calibre.gui2.actions.show_quickview import get_quickview_action_plugin
 from calibre.utils.resources import set_data
-from polyglot.builtins import iteritems, unicode_type, map
-
-
-class BusyCursor(object):
-
-    def __enter__(self):
-        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
-
-    def __exit__(self, *args):
-        QApplication.restoreOverrideCursor()
+from polyglot.builtins import iteritems
 
 
 class DefaultAuthorLink(QWidget):  # {{{
@@ -181,14 +174,14 @@ class IdLinksEditor(Dialog):
             t.setItem(r, 1, QTableWidgetItem(val))
             t.setItem(r, 2, QTableWidgetItem(template))
         l.addWidget(t)
-        t.horizontalHeader().setSectionResizeMode(2, t.horizontalHeader().Stretch)
-        self.cb = b = QPushButton(QIcon(I('plus.png')), _('&Add rule'), self)
+        t.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.cb = b = QPushButton(QIcon.ic('plus.png'), _('&Add rule'), self)
         connect_lambda(b.clicked, self, lambda self: self.edit_rule())
         self.bb.addButton(b, QDialogButtonBox.ButtonRole.ActionRole)
-        self.rb = b = QPushButton(QIcon(I('minus.png')), _('&Remove rule'), self)
+        self.rb = b = QPushButton(QIcon.ic('minus.png'), _('&Remove rule'), self)
         connect_lambda(b.clicked, self, lambda self: self.remove_rule())
         self.bb.addButton(b, QDialogButtonBox.ButtonRole.ActionRole)
-        self.eb = b = QPushButton(QIcon(I('modified.png')), _('&Edit rule'), self)
+        self.eb = b = QPushButton(QIcon.ic('modified.png'), _('&Edit rule'), self)
         connect_lambda(b.clicked, self, lambda self: self.edit_rule(self.table.currentRow()))
         self.bb.addButton(b, QDialogButtonBox.ButtonRole.ActionRole)
         l.addWidget(self.bb)
@@ -210,7 +203,7 @@ class IdLinksEditor(Dialog):
         if r > -1:
             key, name, template = map(lambda c: self.table.item(r, c).text(), range(3))
         d = IdLinksRuleEdit(key, name, template, self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             if r < 0:
                 self.table.setRowCount(self.table.rowCount() + 1)
                 r = self.table.rowCount() - 1
@@ -228,13 +221,14 @@ class IdLinksEditor(Dialog):
 
 class DisplayedFields(QAbstractListModel):  # {{{
 
-    def __init__(self, db, parent=None, pref_name=None):
+    def __init__(self, db, parent=None, pref_name=None, category_icons=None):
         self.pref_name = pref_name or 'book_display_fields'
         QAbstractListModel.__init__(self, parent)
 
         self.fields = []
         self.db = db
         self.changed = False
+        self.category_icons = category_icons
 
     def get_field_list(self, use_defaults=False):
         return get_field_list(self.db.field_metadata, use_defaults=use_defaults, pref_name=self.pref_name)
@@ -260,19 +254,24 @@ class DisplayedFields(QAbstractListModel):  # {{{
             except:
                 pass
             if not name:
-                name = field
-            return name
+                return field
+            return f'{name} ({field})'
         if role == Qt.ItemDataRole.CheckStateRole:
             return Qt.CheckState.Checked if visible else Qt.CheckState.Unchecked
-        if role == Qt.ItemDataRole.DecorationRole and field.startswith('#'):
-            return QIcon(I('column.png'))
+        if role == Qt.ItemDataRole.DecorationRole:
+            if self.category_icons:
+                icon = self.category_icons.get(field, None)
+                if icon is not None:
+                    return icon
+            if field.startswith('#'):
+                return QIcon.ic('column.png')
         return None
 
     def toggle_all(self, show=True):
         for i in range(self.rowCount()):
             idx = self.index(i)
             if idx.isValid():
-                self.setData(idx, show, Qt.ItemDataRole.CheckStateRole)
+                self.setData(idx, Qt.CheckState.Checked if show else Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole)
 
     def flags(self, index):
         ans = QAbstractListModel.flags(self, index)
@@ -281,7 +280,7 @@ class DisplayedFields(QAbstractListModel):  # {{{
     def setData(self, index, val, role):
         ret = False
         if role == Qt.ItemDataRole.CheckStateRole:
-            self.fields[index.row()][1] = bool(val)
+            self.fields[index.row()][1] = val in (Qt.CheckState.Checked, Qt.CheckState.Checked.value)
             self.changed = True
             ret = True
             self.dataChanged.emit(index, index)
@@ -329,6 +328,23 @@ def move_field_down(widget, model):
 # }}}
 
 
+class EMDisplayedFields(DisplayedFields):  # {{{
+    def __init__(self, db, parent=None):
+        DisplayedFields.__init__(self, db, parent)
+
+    def initialize(self, use_defaults=False, pref_data_override=None):
+        self.beginResetModel()
+        self.fields = [[x[0], x[1]] for x in
+                em_get_field_list(self.db, use_defaults=use_defaults, pref_data_override=pref_data_override)]
+        self.endResetModel()
+        self.changed = True
+
+    def commit(self):
+        if self.changed:
+            self.db.new_api.set_pref('edit_metadata_custom_columns_to_display', self.fields)
+# }}}
+
+
 class QVDisplayedFields(DisplayedFields):  # {{{
 
     def __init__(self, db, parent=None):
@@ -345,6 +361,144 @@ class QVDisplayedFields(DisplayedFields):  # {{{
         if self.changed:
             self.db.new_api.set_pref('qv_display_fields', self.fields)
 
+# }}}
+
+
+class TBDisplayedFields(DisplayedFields):  # {{{
+    # The code in this class depends on the fact that the tag browser is
+    # initialized before this class is instantiated.
+
+    def __init__(self, db, parent=None, category_icons=None):
+        DisplayedFields.__init__(self, db, parent, category_icons=category_icons)
+        from calibre.gui2.ui import get_gui
+        self.gui = get_gui()
+
+    def initialize(self, use_defaults=False, pref_data_override=None):
+        tv = self.gui.tags_view
+        cat_ord = tv.model().get_ordered_categories(use_defaults=use_defaults,
+                                                    pref_data_override=pref_data_override)
+        if use_defaults:
+            hc = []
+            self.changed = True
+        elif pref_data_override:
+            hc = [k for k,v in pref_data_override if not v]
+            self.changed = True
+        else:
+            hc = tv.hidden_categories
+
+        self.beginResetModel()
+        self.fields = [[x, x not in hc] for x in cat_ord]
+        self.endResetModel()
+
+    def commit(self):
+        if self.changed:
+            self.db.prefs.set('tag_browser_hidden_categories', [k for k,v in self.fields if not v])
+            self.db.prefs.set('tag_browser_category_order', [k for k,v in self.fields])
+# }}}
+
+
+class TBPartitionedFields(DisplayedFields):  # {{{
+    # The code in this class depends on the fact that the tag browser is
+    # initialized before this class is instantiated.
+
+    def __init__(self, db, parent=None, category_icons=None):
+        DisplayedFields.__init__(self, db, parent, category_icons=category_icons)
+        from calibre.gui2.ui import get_gui
+        self.gui = get_gui()
+
+    def initialize(self, use_defaults=False, pref_data_override=None):
+        tv = self.gui.tags_view
+        cats = tv.model().categories
+        ans = []
+        if use_defaults:
+            ans = [[k, True] for k in cats.keys()]
+            self.changed = True
+        elif pref_data_override:
+            po = {k:v for k,v in pref_data_override}
+            ans = [[k, po.get(k, True)] for k in cats.keys()]
+            self.changed = True
+        else:
+            # Check if setting not migrated yet
+            cats_to_partition = frozenset(self.db.prefs.get('tag_browser_dont_collapse', gprefs.get('tag_browser_dont_collapse')) or ())
+            for key in cats:
+                ans.append([key, key not in cats_to_partition])
+        self.beginResetModel()
+        self.fields = ans
+        self.endResetModel()
+
+    def commit(self):
+        if self.changed:
+            # Migrate to a per-library setting
+            self.db.prefs.set('tag_browser_dont_collapse', [k for k,v in self.fields if not v])
+# }}}
+
+
+class TBHierarchicalFields(DisplayedFields):  # {{{
+    # The code in this class depends on the fact that the tag browser is
+    # initialized before this class is instantiated.
+
+    cant_make_hierarical = {'authors', 'publisher', 'formats', 'news',
+                            'identifiers', 'languages', 'rating'}
+
+    def __init__(self, db, parent=None, category_icons=None):
+        DisplayedFields.__init__(self, db, parent, category_icons=category_icons)
+        from calibre.gui2.ui import get_gui
+        self.gui = get_gui()
+
+    def initialize(self, use_defaults=False, pref_data_override=None):
+        tv = self.gui.tags_view
+        cats = [k for k in tv.model().categories.keys() if k not in self.cant_make_hierarical]
+        ans = []
+        if use_defaults:
+            ans = [[k, False] for k in cats]
+            self.changed = True
+        elif pref_data_override:
+            ph = {k:v for k,v in pref_data_override}
+            ans = [[k, ph.get(k, False)] for k in cats]
+            self.changed = True
+        else:
+            hier_cats =  self.db.prefs.get('categories_using_hierarchy') or ()
+            for key in cats:
+                ans.append([key, key in hier_cats])
+        self.beginResetModel()
+        self.fields = ans
+        self.endResetModel()
+
+    def commit(self):
+        if self.changed:
+            self.db.prefs.set('categories_using_hierarchy', [k for k,v in self.fields if v])
+# }}}
+
+
+class BDVerticalCats(DisplayedFields):  # {{{
+
+    def __init__(self, db, parent=None, category_icons=None):
+        DisplayedFields.__init__(self, db, parent, category_icons=category_icons)
+        from calibre.gui2.ui import get_gui
+        self.gui = get_gui()
+
+    def initialize(self, use_defaults=False, pref_data_override=None):
+        fm = self.db.field_metadata
+        cats = [k for k in fm if fm[k]['name'] and fm[k]['is_multiple']]
+        ans = []
+        if use_defaults:
+            ans = [[k, False] for k in cats]
+            self.changed = True
+        elif pref_data_override:
+            ph = {k:v for k,v in pref_data_override}
+            ans = [[k, ph.get(k, False)] for k in cats]
+            self.changed = True
+        else:
+            vertical_cats =  self.db.prefs.get('book_details_vertical_categories') or ()
+            for key in cats:
+                ans.append([key, key in vertical_cats])
+        self.beginResetModel()
+        self.fields = ans
+        self.endResetModel()
+
+    def commit(self):
+        if self.changed:
+            self.db.prefs.set('book_details_vertical_categories', [k for k,v in self.fields if v])
 # }}}
 
 
@@ -388,16 +542,18 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
     def genesis(self, gui):
         self.gui = gui
+        self.ui_style_available = True
         if not ismacos and not iswindows:
             self.label_widget_style.setVisible(False)
             self.opt_ui_style.setVisible(False)
+            self.ui_style_available = False
 
         db = gui.library_view.model().db
 
         r = self.register
 
         try:
-            self.icon_theme_title = json.loads(I('icon-theme.json', data=True))['name']
+            self.icon_theme_title = icon_resource_manager.user_theme_title
         except Exception:
             self.icon_theme_title = _('Default icons')
         self.icon_theme.setText(_('Icon theme: <b>%s</b>') % self.icon_theme_title)
@@ -406,10 +562,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.default_author_link = DefaultAuthorLink(self.default_author_link_container)
         self.default_author_link.changed_signal.connect(self.changed_signal)
         r('gui_layout', config, restart_required=True, choices=[(_('Wide'), 'wide'), (_('Narrow'), 'narrow')])
-        r('hidpi', gprefs, restart_required=True, choices=[(_('Automatic'), 'auto'), (_('On'), 'on'), (_('Off'), 'off')])
-        if ismacos:
-            self.opt_hidpi.setVisible(False), self.label_hidpi.setVisible(False)
         r('ui_style', gprefs, restart_required=True, choices=[(_('System default'), 'system'), (_('calibre style'), 'calibre')])
+        r('color_palette', gprefs, restart_required=True, choices=[(_('System default'), 'system'), (_('Light'), 'light'), (_('Dark'), 'dark')])
         r('book_list_tooltips', gprefs)
         r('dnd_merge', gprefs)
         r('wrap_toolbar_text', gprefs, restart_required=True)
@@ -481,6 +635,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         r('separate_cover_flow', config, restart_required=True)
         r('cb_fullscreen', gprefs)
         r('cb_preserve_aspect_ratio', gprefs)
+        r('cb_double_click_to_activate', gprefs)
 
         choices = [(_('Off'), 'off'), (_('Small'), 'small'),
             (_('Medium'), 'medium'), (_('Large'), 'large')]
@@ -496,55 +651,110 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         r('tags_browser_collapse_at', gprefs)
         r('tags_browser_collapse_fl_at', gprefs)
 
-        choices = {k for k in db.field_metadata.all_field_keys()
-                if (db.field_metadata[k]['is_category'] and (
-                    db.field_metadata[k]['datatype'] in ['text', 'series', 'enumeration'
-                    ]) and not db.field_metadata[k]['display'].get('is_names', False)) or (
-                    db.field_metadata[k]['datatype'] in ['composite'
-                    ] and db.field_metadata[k]['display'].get('make_category', False))}
-        choices |= {'search'}
-        r('tag_browser_dont_collapse', gprefs, setting=CommaSeparatedList,
-          choices=sorted(choices, key=sort_key))
-
-        choices -= {'authors', 'publisher', 'formats', 'news', 'identifiers'}
-        r('categories_using_hierarchy', db.prefs, setting=CommaSeparatedList,
-          choices=sorted(choices, key=sort_key))
-
         fm = db.field_metadata
         choices = sorted(((fm[k]['name'], k) for k in fm.displayable_field_keys() if fm[k]['name']),
                          key=lambda x:sort_key(x[0]))
         r('field_under_covers_in_grid', db.prefs, choices=choices)
 
+        choices = [(_('Default'), 'default'), (_('Compact metadata'), 'alt1'),
+                   (_('All on 1 tab'), 'alt2')]
+        r('edit_metadata_single_layout', gprefs,
+          choices=[(_('Default'), 'default'), (_('Compact metadata'), 'alt1'),
+                   (_('All on 1 tab'), 'alt2')])
+        r('edit_metadata_ignore_display_order', db.prefs)
+        r('edit_metadata_elision_point', gprefs,
+          choices=[(_('Left'), 'left'), (_('Middle'), 'middle'),
+                   (_('Right'), 'right')])
+        r('edit_metadata_elide_labels', gprefs)
+        r('edit_metadata_single_use_2_cols_for_custom_fields', gprefs)
+        r('edit_metadata_bulk_cc_label_length', gprefs)
+        r('edit_metadata_single_cc_label_length', gprefs)
+        r('edit_metadata_templates_only_F2_on_booklist', gprefs)
+
         self.current_font = self.initial_font = None
         self.change_font_button.clicked.connect(self.change_font)
 
-        self.display_model = DisplayedFields(self.gui.current_db,
-                self.field_display_order)
+        self.display_model = DisplayedFields(self.gui.current_db, self.field_display_order)
         self.display_model.dataChanged.connect(self.changed_signal)
         self.field_display_order.setModel(self.display_model)
-        connect_lambda(self.df_up_button.clicked, self,
-                lambda self: move_field_up(self.field_display_order, self.display_model))
-        connect_lambda(self.df_down_button.clicked, self,
-                lambda self: move_field_down(self.field_display_order, self.display_model))
+        mu = partial(move_field_up, self.field_display_order, self.display_model)
+        md = partial(move_field_down, self.field_display_order, self.display_model)
+        self.df_up_button.clicked.connect(mu)
+        self.df_down_button.clicked.connect(md)
+        self.field_display_order.set_movement_functions(mu, md)
 
-        self.qv_display_model = QVDisplayedFields(self.gui.current_db,
-                self.qv_display_order)
+        self.em_display_model = EMDisplayedFields(self.gui.current_db, self.em_display_order)
+        self.em_display_model.dataChanged.connect(self.changed_signal)
+        self.em_display_order.setModel(self.em_display_model)
+        mu = partial(move_field_up, self.em_display_order, self.em_display_model)
+        md = partial(move_field_down, self.em_display_order, self.em_display_model)
+        self.em_display_order.set_movement_functions(mu, md)
+        self.em_up_button.clicked.connect(mu)
+        self.em_down_button.clicked.connect(md)
+        self.em_export_layout_button.clicked.connect(partial(self.export_layout, model=self.em_display_model))
+        self.em_import_layout_button.clicked.connect(partial(self.import_layout, model=self.em_display_model))
+        self.em_reset_layout_button.clicked.connect(partial(self.reset_layout, model=self.em_display_model))
+
+        self.qv_display_model = QVDisplayedFields(self.gui.current_db, self.qv_display_order)
         self.qv_display_model.dataChanged.connect(self.changed_signal)
         self.qv_display_order.setModel(self.qv_display_model)
-        connect_lambda(self.qv_up_button.clicked, self,
-                lambda self: move_field_up(self.qv_display_order, self.qv_display_model))
-        connect_lambda(self.qv_down_button.clicked, self,
-                lambda self: move_field_down(self.qv_display_order, self.qv_display_model))
+        mu = partial(move_field_up, self.qv_display_order, self.qv_display_model)
+        md = partial(move_field_down, self.qv_display_order, self.qv_display_model)
+        self.qv_display_order.set_movement_functions(mu, md)
+        self.qv_up_button.clicked.connect(mu)
+        self.qv_down_button.clicked.connect(md)
+
+        self.tb_display_model = TBDisplayedFields(self.gui.current_db, self.tb_display_order,
+                                  category_icons=self.gui.tags_view.model().category_custom_icons)
+        self.tb_display_model.dataChanged.connect(self.changed_signal)
+        self.tb_display_order.setModel(self.tb_display_model)
+        self.tb_reset_layout_button.clicked.connect(partial(self.reset_layout, model=self.tb_display_model))
+        self.tb_export_layout_button.clicked.connect(partial(self.export_layout, model=self.tb_display_model))
+        self.tb_import_layout_button.clicked.connect(partial(self.import_layout, model=self.tb_display_model))
+        self.tb_up_button.clicked.connect(self.tb_up_button_clicked)
+        self.tb_down_button.clicked.connect(self.tb_down_button_clicked)
+        self.tb_display_order.set_movement_functions(self.tb_up_button_clicked, self.tb_down_button_clicked)
+
+        self.tb_categories_to_part_model = TBPartitionedFields(self.gui.current_db,
+                                   self.tb_cats_to_partition,
+                                   category_icons=self.gui.tags_view.model().category_custom_icons)
+        self.tb_categories_to_part_model.dataChanged.connect(self.changed_signal)
+        self.tb_cats_to_partition.setModel(self.tb_categories_to_part_model)
+        self.tb_partition_reset_button.clicked.connect(partial(self.reset_layout,
+                                                               model=self.tb_categories_to_part_model))
+        self.tb_partition_export_layout_button.clicked.connect(partial(self.export_layout,
+                                                                       model=self.tb_categories_to_part_model))
+        self.tb_partition_import_layout_button.clicked.connect(partial(self.import_layout,
+                                                                       model=self.tb_categories_to_part_model))
+
+        self.tb_hierarchical_cats_model = TBHierarchicalFields(self.gui.current_db, self.tb_hierarchical_cats,
+                                              category_icons=self.gui.tags_view.model().category_custom_icons)
+        self.tb_hierarchical_cats_model.dataChanged.connect(self.changed_signal)
+        self.tb_hierarchical_cats.setModel(self.tb_hierarchical_cats_model)
+        self.tb_hierarchy_reset_layout_button.clicked.connect(partial(self.reset_layout,
+                                                           model=self.tb_hierarchical_cats_model))
+        self.tb_hierarchy_export_layout_button.clicked.connect(partial(self.export_layout,
+                                                           model=self.tb_hierarchical_cats_model))
+        self.tb_hierarchy_import_layout_button.clicked.connect(partial(self.import_layout,
+                                                           model=self.tb_hierarchical_cats_model))
+
+        self.bd_vertical_cats_model = BDVerticalCats(self.gui.current_db, self.tb_hierarchical_cats)
+        self.bd_vertical_cats_model.dataChanged.connect(self.changed_signal)
+        self.bd_vertical_cats.setModel(self.bd_vertical_cats_model)
+
+        self.fill_tb_search_order_box()
+        self.tb_search_order_up_button.clicked.connect(self.move_tb_search_up)
+        self.tb_search_order_down_button.clicked.connect(self.move_tb_search_down)
+        self.tb_search_order.set_movement_functions(self.move_tb_search_up, self.move_tb_search_down)
+        self.tb_search_order_reset_button.clicked.connect(self.reset_tb_search_order)
 
         self.edit_rules = EditRules(self.tabWidget)
         self.edit_rules.changed.connect(self.changed_signal)
-        self.tabWidget.addTab(self.edit_rules,
-                QIcon(I('format-fill-color.png')), _('Column &coloring'))
+        self.tabWidget.addTab(self.edit_rules, QIcon.ic('format-fill-color.png'), _('Column &coloring'))
 
         self.icon_rules = EditRules(self.tabWidget)
         self.icon_rules.changed.connect(self.changed_signal)
-        self.tabWidget.addTab(self.icon_rules,
-                QIcon(I('icon_choose.png')), _('Column &icons'))
+        self.tabWidget.addTab(self.icon_rules, QIcon.ic('icon_choose.png'), _('Column &icons'))
 
         self.grid_rules = EditRules(self.emblems_tab)
         self.grid_rules.changed.connect(self.changed_signal)
@@ -552,9 +762,10 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.emblems_tab.layout().addWidget(self.grid_rules)
 
         self.tabWidget.setCurrentIndex(0)
+        self.tabWidget.tabBar().setVisible(False)
         keys = [QKeySequence('F11', QKeySequence.SequenceFormat.PortableText), QKeySequence(
             'Ctrl+Shift+F', QKeySequence.SequenceFormat.PortableText)]
-        keys = [unicode_type(x.toString(QKeySequence.SequenceFormat.NativeText)) for x in keys]
+        keys = [str(x.toString(QKeySequence.SequenceFormat.NativeText)) for x in keys]
         self.fs_help_msg.setText(self.fs_help_msg.text()%(
             QKeySequence(QKeySequence.StandardKey.FullScreen).toString(QKeySequence.SequenceFormat.NativeText)))
         self.size_calculated.connect(self.update_cg_cache_size, type=Qt.ConnectionType.QueuedConnection)
@@ -589,18 +800,149 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.css_highlighter = get_highlighter('css')()
         self.css_highlighter.apply_theme(get_theme(None))
         self.css_highlighter.set_document(self.opt_book_details_css.document())
+        for i in range(self.tabWidget.count()):
+            self.sections_view.addItem(QListWidgetItem(self.tabWidget.tabIcon(i), self.tabWidget.tabText(i).replace('&', '')))
+        self.sections_view.setCurrentRow(self.tabWidget.currentIndex())
+        self.sections_view.currentRowChanged.connect(self.tabWidget.setCurrentIndex)
+        self.sections_view.setMaximumWidth(self.sections_view.sizeHintForColumn(0) + 16)
+        self.sections_view.setSpacing(4)
+        self.sections_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tabWidget.currentWidget().setFocus(Qt.FocusReason.OtherFocusReason)
+        self.opt_ui_style.currentIndexChanged.connect(self.update_color_palette_state)
+
+    def initial_tab_changed(self):
+        self.sections_view.setCurrentRow(self.tabWidget.currentIndex())
+
+    def fill_tb_search_order_box(self):
+        # The tb_search_order is a directed graph of nodes with an arc to the next
+        # node in the sequence. Node 0 (zero) is the start node with the last node
+        # arcing back to node 0. This code linearizes the graph
+
+        choices = [(1, _('Search for books containing the current item')),
+                   (2, _('Search for books containing the current item or its children')),
+                   (3, _('Search for books not containing the current item')),
+                   (4, _('Search for books not containing the current item or its children'))]
+        icon_map = self.gui.tags_view.model().icon_state_map
+
+        order = gprefs.get('tb_search_order')
+        self.tb_search_order.clear()
+        node = 0
+        while True:
+            v = order[str(node)]
+            if v == 0:
+                break
+            item = QListWidgetItem(icon_map[v], choices[v-1][1])
+            item.setData(Qt.ItemDataRole.UserRole, choices[v-1][0])
+            self.tb_search_order.addItem(item)
+            node = v
+
+    def move_tb_search_up(self):
+        idx = self.tb_search_order.currentRow()
+        if idx <= 0:
+            return
+        item = self.tb_search_order.takeItem(idx)
+        self.tb_search_order.insertItem(idx-1, item)
+        self.tb_search_order.setCurrentRow(idx-1)
+        self.changed_signal.emit()
+
+    def move_tb_search_down(self):
+        idx = self.tb_search_order.currentRow()
+        if idx < 0 or idx == 3:
+            return
+        item = self.tb_search_order.takeItem(idx)
+        self.tb_search_order.insertItem(idx+1, item)
+        self.tb_search_order.setCurrentRow(idx+1)
+        self.changed_signal.emit()
+
+    def tb_search_order_commit(self):
+        t = {}
+        # Walk the items in the list box building the (node -> node) graph of
+        # the option order
+        node = 0
+        for i in range(0, 4):
+            v = self.tb_search_order.item(i).data(Qt.ItemDataRole.UserRole)
+            # JSON dumps converts integer keys to strings, so do it explicitly
+            t[str(node)] = v
+            node = v
+        # Add the arc from the last node back to node 0
+        t[str(node)] = 0
+        gprefs.set('tb_search_order', t)
+
+    def reset_tb_search_order(self):
+        gprefs.set('tb_search_order', gprefs.defaults['tb_search_order'])
+        self.fill_tb_search_order_box()
+        self.changed_signal.emit()
+
+    def update_color_palette_state(self):
+        if self.ui_style_available:
+            enabled = self.opt_ui_style.currentData() == 'calibre'
+            self.opt_color_palette.setEnabled(enabled)
+            self.opt_color_palette_label.setEnabled(enabled)
+
+    def export_layout(self, model=None):
+        filename = choose_save_file(self, 'em_import_export_field_list',
+                _('Save column list to file'),
+                filters=[(_('Column list'), ['json'])])
+        if filename:
+            try:
+                with open(filename, 'w') as f:
+                    json.dump(model.fields, f, indent=1)
+            except Exception as err:
+                error_dialog(self, _('Export field layout'),
+                             _('<p>Could not write field list. Error:<br>%s')%err, show=True)
+
+    def import_layout(self, model=None):
+        filename = choose_files(self, 'em_import_export_field_list',
+                _('Load column list from file'),
+                filters=[(_('Column list'), ['json'])])
+        if filename:
+            try:
+                with open(filename[0]) as f:
+                    fields = json.load(f)
+                model.initialize(pref_data_override=fields)
+                self.changed_signal.emit()
+            except Exception as err:
+                error_dialog(self, _('Import layout'),
+                             _('<p>Could not read field list. Error:<br>%s')%err, show=True)
+
+    def reset_layout(self, model=None):
+        model.initialize(use_defaults=True)
+        self.changed_signal.emit()
+
+    def tb_down_button_clicked(self):
+        idx = self.tb_display_order.currentIndex()
+        if idx.isValid():
+            row = idx.row()
+            model = self.tb_display_model
+            fields = model.fields
+            key = fields[row][0]
+            if not is_standard_category(key):
+                return
+            if row < len(fields) and is_standard_category(fields[row+1][0]):
+                move_field_down(self.tb_display_order, model)
+
+    def tb_up_button_clicked(self):
+        idx = self.tb_display_order.currentIndex()
+        if idx.isValid():
+            row = idx.row()
+            model = self.tb_display_model
+            fields = model.fields
+            key = fields[row][0]
+            if not is_standard_category(key):
+                return
+            move_field_up(self.tb_display_order, model)
 
     def choose_icon_theme(self):
         from calibre.gui2.icon_theme import ChooseTheme
         d = ChooseTheme(self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.commit_icon_theme = d.commit_changes
             self.icon_theme_title = d.new_theme_title or _('Default icons')
             self.icon_theme.setText(_('Icon theme: <b>%s</b>') % self.icon_theme_title)
             self.changed_signal.emit()
 
     def edit_id_link_rules(self):
-        if IdLinksEditor(self).exec_() == QDialog.DialogCode.Accepted:
+        if IdLinksEditor(self).exec() == QDialog.DialogCode.Accepted:
             self.changed_signal.emit()
 
     @property
@@ -635,7 +977,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
     def edit_cb_title_template(self):
         t = TemplateDialog(self, self.opt_cover_browser_title_template.text(), fm=self.gui.current_db.field_metadata)
         t.setWindowTitle(_('Edit template for caption'))
-        if t.exec_():
+        if t.exec():
             self.opt_cover_browser_title_template.setText(t.rule[1])
 
     def initialize(self):
@@ -648,13 +990,21 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.current_font = self.initial_font = font
         self.update_font_display()
         self.display_model.initialize()
+        self.em_display_model.initialize()
         self.qv_display_model.initialize()
+        self.tb_display_model.initialize()
+        self.tb_categories_to_part_model.initialize()
+        self.tb_hierarchical_cats_model.initialize()
+        self.bd_vertical_cats_model.initialize()
         db = self.gui.current_db
+        mi = []
         try:
-            idx = self.gui.library_view.currentIndex().row()
-            mi = db.get_metadata(idx, index_is_id=False)
+            rows = self.gui.current_view().selectionModel().selectedRows()
+            for row in rows:
+                if row.isValid():
+                    mi.append(db.new_api.get_proxy_metadata(db.data.index_to_id(row.row())))
         except:
-            mi=None
+            pass
         self.edit_rules.initialize(db.field_metadata, db.prefs, mi, 'column_color_rules')
         self.icon_rules.initialize(db.field_metadata, db.prefs, mi, 'column_icon_rules')
         self.grid_rules.initialize(db.field_metadata, db.prefs, mi, 'cover_grid_icon_rules')
@@ -665,6 +1015,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.opt_book_details_css.setPlainText(P('templates/book_details.css', data=True).decode('utf-8'))
         self.opt_book_details_css.blockSignals(False)
         self.tb_focus_label.setVisible(self.opt_tag_browser_allow_keyboard_focus.isChecked())
+        self.update_color_palette_state()
 
     def open_cg_cache(self):
         open_local_file(self.gui.grid_view.thumbnail_cache.location)
@@ -706,7 +1057,10 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             self.changed_signal.emit()
             self.update_font_display()
         self.display_model.restore_defaults()
+        self.em_display_model.restore_defaults()
         self.qv_display_model.restore_defaults()
+        self.bd_vertical_cats_model.restore_defaults()
+        gprefs.set('tb_search_order', gprefs.defaults['tb_search_order'])
         self.edit_rules.clear()
         self.icon_rules.clear()
         self.grid_rules.clear()
@@ -732,7 +1086,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
     def change_cover_grid_texture(self):
         from calibre.gui2.preferences.texture_chooser import TextureChooser
         d = TextureChooser(parent=self, initial=self.cg_bg_widget.btex)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.set_cg_texture(d.texture)
             self.changed_signal.emit()
 
@@ -750,17 +1104,17 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
     def update_font_display(self):
         font = self.build_font_obj()
         fi = QFontInfo(font)
-        name = unicode_type(fi.family())
+        name = str(fi.family())
 
         self.font_display.setFont(font)
         self.font_display.setText(name + ' [%dpt]'%fi.pointSize())
 
     def change_font(self, *args):
         fd = QFontDialog(self.build_font_obj(), self)
-        if fd.exec_() == QDialog.DialogCode.Accepted:
+        if fd.exec() == QDialog.DialogCode.Accepted:
             font = fd.selectedFont()
             fi = QFontInfo(font)
-            self.current_font = [unicode_type(fi.family()), fi.pointSize(),
+            self.current_font = [str(fi.family()), fi.pointSize(),
                     fi.weight(), fi.italic(), font.stretch()]
             self.update_font_display()
             self.changed_signal.emit()
@@ -776,7 +1130,13 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                 QApplication.setFont(self.font_display.font())
                 rr = True
             self.display_model.commit()
+            self.em_display_model.commit()
             self.qv_display_model.commit()
+            self.tb_display_model.commit()
+            self.tb_categories_to_part_model.commit()
+            self.tb_hierarchical_cats_model.commit()
+            self.bd_vertical_cats_model.commit()
+            self.tb_search_order_commit()
             self.edit_rules.commit(self.gui.current_db.prefs)
             self.icon_rules.commit(self.gui.current_db.prefs)
             self.grid_rules.commit(self.gui.current_db.prefs)
@@ -784,7 +1144,6 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             gprefs['cover_grid_texture'] = self.cg_bg_widget.btex
             if self.commit_icon_theme is not None:
                 self.commit_icon_theme()
-                rr = True
             gprefs['default_author_link'] = self.default_author_link.value
             bcss = self.opt_book_details_css.toPlainText().encode('utf-8')
             defcss = P('templates/book_details.css', data=True, allow_user_override=False)
@@ -797,15 +1156,19 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
     def refresh_gui(self, gui):
         gui.book_details.book_info.refresh_css()
         m = gui.library_view.model()
+        m.update_db_prefs_cache()
         m.beginResetModel(), m.endResetModel()
         self.update_font_display()
         gui.tags_view.set_look_and_feel()
         gui.tags_view.reread_collapse_parameters()
+        gui.tags_view.model().reset_tag_browser()
         gui.library_view.refresh_book_details(force=True)
         gui.library_view.refresh_grid()
+        gui.library_view.refresh_composite_edit()
         gui.library_view.set_row_header_visibility()
         gui.cover_flow.setShowReflections(gprefs['cover_browser_reflections'])
         gui.cover_flow.setPreserveAspectRatio(gprefs['cb_preserve_aspect_ratio'])
+        gui.cover_flow.setActivateOnDoubleClick(gprefs['cb_double_click_to_activate'])
         gui.update_cover_flow_subtitle_font()
         gui.cover_flow.template_inited = False
         for view in 'library memory card_a card_b'.split():

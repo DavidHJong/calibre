@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -12,7 +11,8 @@ import shutil
 from functools import partial
 from io import BytesIO
 from qt.core import (
-    QAction, QApplication, QDialog, QIcon, QMenu, QMimeData, QModelIndex, QTimer, QUrl
+    QAction, QApplication, QDialog, QIcon, QMenu, QMimeData, QModelIndex, QTimer,
+    QUrl
 )
 
 from calibre.db.errors import NoSuchFormat
@@ -30,7 +30,7 @@ from calibre.library.comments import merge_comments
 from calibre.utils.config import tweaks
 from calibre.utils.date import is_date_undefined
 from calibre.utils.icu import sort_key
-from polyglot.builtins import iteritems, map, unicode_type
+from polyglot.builtins import iteritems
 
 
 class EditMetadataAction(InterfaceAction):
@@ -76,7 +76,7 @@ class EditMetadataAction(InterfaceAction):
         cm('bulk', _('Edit metadata in bulk'),
                 triggered=partial(self.edit_metadata, False, bulk=True))
         md.addSeparator()
-        cm('download', _('Download metadata and covers'),
+        cm('download', _('Download metadata and covers'), icon='download-metadata.png',
                 triggered=partial(self.download_metadata, ids=None),
                 shortcut='Ctrl+D')
         self.metadata_menu = md
@@ -96,7 +96,11 @@ class EditMetadataAction(InterfaceAction):
         self.merge_menu = mb
         md.addSeparator()
         self.action_copy = cm('copy', _('Copy metadata'), icon='edit-copy.png', triggered=self.copy_metadata)
-        self.action_paset = cm('paste', _('Paste metadata'), icon='edit-paste.png', triggered=self.paste_metadata)
+        self.action_paste = cm('paste', _('Paste metadata'), icon='edit-paste.png', triggered=self.paste_metadata)
+        self.action_paste_ignore_excluded = ac = cm(
+            'paste_include_excluded_fields', _('Paste metadata including excluded fields'), icon='edit-paste.png',
+            triggered=self.paste_metadata_including_excluded_fields)
+        ac.setVisible(False)
         self.action_merge = cm('merge', _('Merge book records'), icon='merge_books.png',
             shortcut=_('M'), triggered=self.merge_books)
         self.action_merge.setMenu(mb)
@@ -173,7 +177,7 @@ class EditMetadataAction(InterfaceAction):
         book_id = db.id(rows[0].row())
         mi = db.new_api.get_metadata(book_id)
         md = QMimeData()
-        md.setText(unicode_type(mi))
+        md.setText(str(mi))
         md.setData('application/calibre-book-metadata', bytearray(metadata_to_opf(mi, default_lang='und')))
         img = db.new_api.cover(book_id, as_image=True)
         if img:
@@ -182,6 +186,12 @@ class EditMetadataAction(InterfaceAction):
         c.setMimeData(md)
 
     def paste_metadata(self):
+        self.do_paste()
+
+    def paste_metadata_including_excluded_fields(self):
+        self.do_paste(ignore_excluded_fields=True)
+
+    def do_paste(self, ignore_excluded_fields=False):
         rows = self.gui.library_view.selectionModel().selectedRows()
         if not rows or len(rows) == 0:
             return error_dialog(self.gui, _('Cannot paste metadata'),
@@ -199,7 +209,10 @@ class EditMetadataAction(InterfaceAction):
         data = bytes(md.data('application/calibre-book-metadata'))
         mi = OPF(BytesIO(data), populate_spine=False, read_toc=False, try_to_guess_cover=False).to_book_metadata()
         mi.application_id = mi.uuid_id = None
-        exclude = set(tweaks['exclude_fields_on_paste'])
+        if ignore_excluded_fields:
+            exclude = set()
+        else:
+            exclude = set(tweaks['exclude_fields_on_paste'])
         paste_cover = 'cover' not in exclude
         cover = md.imageData() if paste_cover else None
         exclude.discard('cover')
@@ -292,7 +305,7 @@ class EditMetadataAction(InterfaceAction):
             log_is_file=True, checkbox_msg=checkbox_msg,
             checkbox_checked=False, action_callback=review_apply,
             action_label=_('Revie&w downloaded metadata'),
-            action_icon=QIcon(I('auto_author_sort.png')))
+            action_icon=QIcon.ic('auto_author_sort.png'))
 
     def apply_downloaded_metadata(self, review, payload, *args):
         good_ids, tdir, log_file, lm_map, failed_ids = payload
@@ -366,10 +379,10 @@ class EditMetadataAction(InterfaceAction):
                 intro_msg=_('The downloaded metadata is on the left and the original metadata'
                             ' is on the right. If a downloaded value is blank or unknown,'
                             ' the original value is used.'),
-                action_button=(_('&View book'), I('view.png'), self.gui.iactions['View'].view_historical),
+                action_button=(_('&View book'), 'view.png', self.gui.iactions['View'].view_historical),
                 db=db
             )
-            if d.exec_() == QDialog.DialogCode.Accepted:
+            if d.exec() == QDialog.DialogCode.Accepted:
                 if d.mark_rejected:
                     failed_ids |= d.rejected_ids
                     restrict_to_failed = True
@@ -416,7 +429,7 @@ class EditMetadataAction(InterfaceAction):
         if not rows or len(rows) == 0:
             d = error_dialog(self.gui, _('Cannot edit metadata'),
                              _('No books selected'))
-            d.exec_()
+            d.exec()
             return
         row_list = [r.row() for r in rows]
         m = self.gui.library_view.model()
@@ -508,7 +521,7 @@ class EditMetadataAction(InterfaceAction):
         if not rows or len(rows) == 0:
             d = error_dialog(self.gui, _('Cannot edit metadata'),
                     _('No books selected'))
-            d.exec_()
+            d.exec()
             return
         self.do_edit_bulk_metadata(rows, ids)
 
@@ -702,7 +715,7 @@ class EditMetadataAction(InterfaceAction):
                 if not dest_mi.comments:
                     dest_mi.comments = src_mi.comments
                 else:
-                    dest_mi.comments = unicode_type(dest_mi.comments) + '\n\n' + unicode_type(src_mi.comments)
+                    dest_mi.comments = str(dest_mi.comments) + '\n\n' + str(src_mi.comments)
             if src_mi.title and (not dest_mi.title or dest_mi.title == _('Unknown')):
                 dest_mi.title = src_mi.title
             if (src_mi.authors and src_mi.authors[0] != _('Unknown')) and (not dest_mi.authors or dest_mi.authors[0] == _('Unknown')):
@@ -755,7 +768,7 @@ class EditMetadataAction(InterfaceAction):
                     if not dest_value:
                         db.set_custom(dest_id, src_value, num=colnum)
                     else:
-                        dest_value = unicode_type(dest_value) + '\n\n' + unicode_type(src_value)
+                        dest_value = str(dest_value) + '\n\n' + str(src_value)
                         db.set_custom(dest_id, dest_value, num=colnum)
                 if (dt in {'bool', 'int', 'float', 'rating', 'datetime'} and dest_value is None):
                     db.set_custom(dest_id, src_value, num=colnum)
@@ -776,12 +789,12 @@ class EditMetadataAction(InterfaceAction):
         model = view.model()
         result = model.get_collections_with_ids()
         d = DeviceCategoryEditor(self.gui, tag_to_match=None, data=result, key=sort_key)
-        d.exec_()
+        d.exec()
         if d.result() == QDialog.DialogCode.Accepted:
             to_rename = d.to_rename  # dict of new text to old ids
             to_delete = d.to_delete  # list of ids
             for old_id, new_name in iteritems(to_rename):
-                model.rename_collection(old_id, new_name=unicode_type(new_name))
+                model.rename_collection(old_id, new_name=str(new_name))
             for item in to_delete:
                 model.delete_collection_using_id(item)
             self.gui.upload_collections(model.db, view=view, oncard=oncard)
@@ -965,7 +978,7 @@ class EditMetadataAction(InterfaceAction):
                     'Cannot read cover as the %s file is missing from this book') % 'PDF', show=True)
             from calibre.gui2.metadata.pdf_covers import PDFCovers
             d = PDFCovers(pdfpath, parent=self.gui)
-            ret = d.exec_()
+            ret = d.exec()
             if ret == QDialog.DialogCode.Accepted:
                 cpath = d.cover_path
                 if cpath:

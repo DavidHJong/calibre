@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -9,11 +8,67 @@ import re, os
 from bisect import bisect
 
 from calibre import guess_type as _guess_type, replace_entities
-from polyglot.builtins import filter
+
+
+BLOCK_TAG_NAMES = frozenset((
+    'address', 'article', 'aside', 'blockquote', 'center', 'dir', 'fieldset',
+    'isindex', 'menu', 'noframes', 'hgroup', 'noscript', 'pre', 'section',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'p', 'div', 'dd', 'dl', 'ul',
+    'ol', 'li', 'body', 'td', 'th'))
 
 
 def guess_type(x):
     return _guess_type(x)[0] or 'application/octet-stream'
+
+
+# All font mimetypes seen in e-books
+OEB_FONTS = frozenset({
+    'font/otf',
+    'font/woff',
+    'font/woff2',
+    'font/ttf',
+    'application/x-font-ttf',
+    'application/x-font-otf',
+    'application/font-sfnt',
+    'application/vnd.ms-opentype',
+    'application/x-font-truetype',
+})
+
+
+def adjust_mime_for_epub(filename='', mime='', opf_version=(2, 0)):
+    mime = mime or guess_type(filename)
+    if mime == 'text/html':
+        # epubcheck complains if the mimetype for text documents is set to text/html in EPUB 2 books. Sigh.
+        return 'application/xhtml+xml'
+    if mime not in OEB_FONTS:
+        return mime
+    if 'ttf' in mime or 'truetype' in mime:
+        mime = 'font/ttf'
+    elif 'otf' in mime or 'opentype' in mime:
+        mime = 'font/otf'
+    elif mime == 'application/font-sfnt':
+        mime = 'font/otf' if filename.lower().endswith('.otf') else 'font/ttf'
+    elif 'woff2' in mime:
+        mime = 'font/woff2'
+    elif 'woff' in mime:
+        mime = 'font/woff'
+    opf_version = tuple(opf_version[:2])
+    if opf_version == (3, 0):
+        mime = {
+            'font/ttf': 'application/vnd.ms-opentype',  # this is needed by the execrable epubchek
+            'font/otf': 'application/vnd.ms-opentype',
+            'font/woff': 'application/font-woff'}.get(mime, mime)
+    elif opf_version == (3, 1):
+        mime = {
+        'font/ttf': 'application/font-sfnt',
+        'font/otf': 'application/font-sfnt',
+        'font/woff': 'application/font-woff'}.get(mime, mime)
+    elif opf_version < (3, 0):
+        mime = {
+            'font/ttf': 'application/x-font-truetype',
+            'font/otf': 'application/vnd.ms-opentype',
+            'font/woff': 'application/font-woff'}.get(mime, mime)
+    return mime
 
 
 def setup_css_parser_serialization(tab_width=2):
@@ -22,6 +77,7 @@ def setup_css_parser_serialization(tab_width=2):
     prefs.indent = tab_width * ' '
     prefs.indentClosingBrace = False
     prefs.omitLastSemicolon = False
+    prefs.formatUnknownAtRules = False  # True breaks @supports rules
 
 
 def actual_case_for_name(container, name):
@@ -60,7 +116,7 @@ def corrected_case_for_name(container, name):
         else:
             try:
                 candidates = {q for q in os.listdir(os.path.dirname(container.name_to_abspath(base)))}
-            except EnvironmentError:
+            except OSError:
                 return None  # one of the non-terminal components of name is a file instead of a directory
             for q in candidates:
                 if q.lower() == x.lower():
@@ -72,7 +128,7 @@ def corrected_case_for_name(container, name):
     return '/'.join(ans)
 
 
-class PositionFinder(object):
+class PositionFinder:
 
     def __init__(self, raw):
         pat = br'\n' if isinstance(raw, bytes) else r'\n'
@@ -87,7 +143,7 @@ class PositionFinder(object):
         return (lnum + 1, offset)
 
 
-class CommentFinder(object):
+class CommentFinder:
 
     def __init__(self, raw, pat=r'(?s)/\*.*?\*/'):
         self.starts, self.ends = [], []

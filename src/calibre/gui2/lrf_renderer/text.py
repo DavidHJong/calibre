@@ -1,5 +1,3 @@
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
@@ -11,7 +9,7 @@ from qt.core import (
 
 from calibre.ebooks.lrf.fonts import LIBERATION_FONT_MAP
 from calibre.ebooks.hyphenate import hyphenate_word
-from polyglot.builtins import unicode_type, string_or_bytes
+from polyglot.builtins import string_or_bytes
 
 WEIGHT_MAP = lambda wt : int((wt/10)-1)
 NULL       = lambda a, b: a
@@ -27,7 +25,7 @@ class PixmapItem(QGraphicsPixmapItem):
         w, h = p.width(), p.height()
         p = p.copy(x0, y0, min(w, x1-x0), min(h, y1-y0))
         if p.width() != xsize or p.height() != ysize:
-            p = p.scaled(xsize, ysize, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            p = p.scaled(int(xsize), int(ysize), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
         QGraphicsPixmapItem.__init__(self, p)
         self.height, self.width = ysize, xsize
         self.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
@@ -35,7 +33,7 @@ class PixmapItem(QGraphicsPixmapItem):
 
     def resize(self, width, height):
         p = self.pixmap()
-        self.setPixmap(p.scaled(width, height, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        self.setPixmap(p.scaled(int(width), int(height), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation))
         self.width, self.height = width, height
 
 
@@ -49,7 +47,7 @@ class Plot(PixmapItem):
         PixmapItem.__init__(self, data, encoding, x0, y0, x1, y1, xsize, ysize)
 
 
-class FontLoader(object):
+class FontLoader:
 
     font_map = {
                 'Swis721 BT Roman'     : 'Liberation Sans',
@@ -81,8 +79,8 @@ class FontLoader(object):
             rfont = self.cache[font]
         else:
             italic = font[2] == QFont.Style.StyleItalic
-            rfont = QFont(font[0], font[3], font[1], italic)
-            rfont.setPixelSize(font[3])
+            rfont = QFont(font[0], int(font[3]), int(font[1]), italic)
+            rfont.setPixelSize(int(font[3]))
             rfont.setBold(wt>=69)
             self.cache[font] = rfont
         qfont = rfont
@@ -93,7 +91,7 @@ class FontLoader(object):
         return qfont
 
 
-class Style(object):
+class Style:
     map = collections.defaultdict(lambda : NULL)
 
     def __init__(self, style, dpi):
@@ -150,16 +148,16 @@ class BlockStyle(Style):
         )
 
 
-class ParSkip(object):
+class ParSkip:
 
     def __init__(self, parskip):
         self.height = parskip
 
     def __str__(self):
-        return 'Parskip: '+unicode_type(self.height)
+        return 'Parskip: '+str(self.height)
 
 
-class TextBlock(object):
+class TextBlock:
 
     class HeightExceeded(Exception):
         pass
@@ -291,7 +289,7 @@ class TextBlock(object):
                                                       self.current_style.linespace,
                                                       self.opts.visual_debug)
             if self.height > self.max_y+10:
-                raise TextBlock.HeightExceeded(unicode_type(self.current_line))
+                raise TextBlock.HeightExceeded(str(self.current_line))
             self.lines.append(self.current_line)
             self.current_line = None
 
@@ -321,13 +319,12 @@ class TextBlock(object):
                 break
 
     def __iter__(self):
-        for line in self.lines:
-            yield line
+        yield from self.lines
 
     def __str__(self):
         s = ''
         for line in self:
-            s += unicode_type(line) + '\n'
+            s += str(line) + '\n'
         return s
 
 
@@ -402,7 +399,7 @@ class Line(QGraphicsItem):
         if self.valign is not None:
             font.setPixelSize(font.pixelSize()/1.5)
         fm = QFontMetrics(font)
-        single_space_width = fm.width(' ')
+        single_space_width = fm.horizontalAdvance(' ')
         height, descent = fm.height(), fm.descent()
         for match in matches:
             processed = True
@@ -411,7 +408,7 @@ class Line(QGraphicsItem):
                 right = left
             space_width = single_space_width * (right-left)
             word = phrase[phrase_pos:left]
-            width = fm.width(word)
+            width = fm.horizontalAdvance(word)
             if self.current_width + width < self.line_length:
                 self.commit(word, width, height, descent, ts, font)
                 if space_width > 0 and self.current_width + space_width < self.line_length:
@@ -424,14 +421,14 @@ class Line(QGraphicsItem):
                 tokens = hyphenate_word(word)
                 for i in range(len(tokens)-2, -1, -1):
                     word = ''.join(tokens[0:i+1])+'-'
-                    width = fm.width(word)
+                    width = fm.horizontalAdvance(word)
                     if self.current_width + width < self.line_length:
                         self.commit(word, width, height, descent, ts, font)
                         return phrase_pos + len(word)-1, True
             if self.current_width < 5:  # Force hyphenation as word is longer than line
                 for i in range(len(word)-5, 0, -5):
                     part = word[:i] + '-'
-                    width = fm.width(part)
+                    width = fm.horizontalAdvance(part)
                     if self.current_width + width < self.line_length:
                         self.commit(part, width, height, descent, ts, font)
                         return phrase_pos + len(part)-1, True
@@ -511,18 +508,18 @@ class Line(QGraphicsItem):
                     painter.save()
                     painter.setPen(QPen(Qt.PenStyle.NoPen))
                     painter.setBrush(QBrush(Qt.GlobalColor.yellow))
-                    painter.drawRect(x, 0, tok.width, tok.height)
+                    painter.drawRect(int(x), 0, tok.width, tok.height)
                     painter.restore()
                 painter.setPen(QPen(tok.text_color))
                 if tok.valign is None:
-                    painter.drawText(x, y, tok.string)
+                    painter.drawText(int(x), int(y), tok.string)
                 elif tok.valign == 'Sub':
-                    painter.drawText(x+1, y+self.descent/1.5, tok.string)
+                    painter.drawText(int(x+1), int(y+self.descent/1.5), tok.string)
                 elif tok.valign == 'Sup':
-                    painter.drawText(x+1, y-2.*self.descent, tok.string)
+                    painter.drawText(int(x+1), int(y-2.*self.descent), tok.string)
                 x += tok.width
             else:
-                painter.drawPixmap(x, 0, tok.pixmap())
+                painter.drawPixmap(int(x), 0, tok.pixmap())
                 x += tok.width
         painter.restore()
 
@@ -542,12 +539,12 @@ class Line(QGraphicsItem):
             while True:
                 word = next(words)
                 word.highlight = False
-                if tokens[0] in unicode_type(word.string).lower():
+                if tokens[0] in str(word.string).lower():
                     matches.append(word)
                     for c in range(1, len(tokens)):
                         word = next(words)
                         print(tokens[c], word.string)
-                        if tokens[c] not in unicode_type(word.string):
+                        if tokens[c] not in str(word.string):
                             return None
                         matches.append(word)
                     for w in matches:
@@ -570,14 +567,14 @@ class Line(QGraphicsItem):
             if isinstance(tok, numbers.Number):
                 s += ' '
             elif isinstance(tok, Word):
-                s += unicode_type(tok.string)
+                s += str(tok.string)
         return s
 
     def __str__(self):
-        return unicode_type(self).encode('utf-8')
+        return str(self).encode('utf-8')
 
 
-class Word(object):
+class Word:
 
     def __init__(self, string, width, height, ts, font, valign):
         self.string, self.width, self.height = string, width, height

@@ -4,10 +4,10 @@
 
 import textwrap
 from qt.core import (
-    QAction, QApplication, QBrush, QCheckBox, QCoreApplication, QDialog, QGridLayout,
+    QAction, QApplication, QBrush, QCheckBox, QDialog, QGridLayout,
     QHBoxLayout, QIcon, QKeySequence, QLabel, QListView, QModelIndex, QPalette,
-    QPixmap, QPushButton, QShortcut, QSize, QSplitter, Qt, QTimer, QToolButton,
-    QVBoxLayout, QWidget, pyqtSignal, QDialogButtonBox
+    QPixmap, QPushButton, QShortcut, QSize, Qt, QTimer, QToolButton,
+    QVBoxLayout, QWidget, pyqtSignal, QDialogButtonBox, QSplitter
 )
 
 from calibre import fit_image
@@ -19,7 +19,6 @@ from calibre.gui2.book_details import (
 from calibre.gui2.ui import get_gui
 from calibre.gui2.widgets import CoverView
 from calibre.gui2.widgets2 import Dialog, HTMLDisplay
-from polyglot.builtins import unicode_type
 
 
 class Cover(CoverView):
@@ -76,11 +75,11 @@ class Configure(Dialog):
         v = QVBoxLayout()
         self.mub = b = QToolButton(self)
         connect_lambda(b.clicked, self, lambda self: move_field_up(fdo, self.model))
-        b.setIcon(QIcon(I('arrow-up.png')))
+        b.setIcon(QIcon.ic('arrow-up.png'))
         b.setToolTip(_('Move the selected field up'))
         v.addWidget(b), v.addStretch(10)
         self.mud = b = QToolButton(self)
-        b.setIcon(QIcon(I('arrow-down.png')))
+        b.setIcon(QIcon.ic('arrow-down.png'))
         b.setToolTip(_('Move the selected field down'))
         connect_lambda(b.clicked, self, lambda self: move_field_down(fdo, self.model))
         v.addWidget(b)
@@ -177,10 +176,10 @@ class BookInfo(QDialog):
             _('Configure this view'), _('Configure')))
         self.clabel.linkActivated.connect(self.configure)
         hl.addWidget(self.clabel)
-        self.previous_button = QPushButton(QIcon(I('previous.png')), _('&Previous'), self)
+        self.previous_button = QPushButton(QIcon.ic('previous.png'), _('&Previous'), self)
         self.previous_button.clicked.connect(self.previous)
         l2.addWidget(self.previous_button, l2.rowCount(), 0)
-        self.next_button = QPushButton(QIcon(I('next.png')), _('&Next'), self)
+        self.next_button = QPushButton(QIcon.ic('next.png'), _('&Next'), self)
         self.next_button.clicked.connect(self.next)
         l2.addWidget(self.next_button, l2.rowCount() - 1, 1)
 
@@ -195,27 +194,39 @@ class BookInfo(QDialog):
         self.ps = QShortcut(QKeySequence('Alt+Left'), self)
         self.ps.activated.connect(self.previous)
         self.next_button.setToolTip(_('Next [%s]')%
-                unicode_type(self.ns.key().toString(QKeySequence.SequenceFormat.NativeText)))
+                str(self.ns.key().toString(QKeySequence.SequenceFormat.NativeText)))
         self.previous_button.setToolTip(_('Previous [%s]')%
-                unicode_type(self.ps.key().toString(QKeySequence.SequenceFormat.NativeText)))
+                str(self.ps.key().toString(QKeySequence.SequenceFormat.NativeText)))
 
-        geom = QCoreApplication.instance().desktop().availableGeometry(self)
-        screen_height = geom.height() - 100
-        screen_width = geom.width() - 100
-        self.resize(max(int(screen_width/2), 700), screen_height)
-        saved_layout = gprefs.get('book_info_dialog_layout', None)
-        if saved_layout is not None:
-            try:
-                QApplication.instance().safe_restore_geometry(self, saved_layout[0])
-                self.splitter.restoreState(saved_layout[1])
-            except Exception:
-                pass
-        from calibre.gui2.ui import get_gui
+        self.restore_geometry(gprefs, 'book_info_dialog_geometry')
+        try:
+            self.splitter.restoreState(gprefs.get('book_info_dialog_splitter_state'))
+        except Exception:
+            pass
         ema = get_gui().iactions['Edit Metadata'].menuless_qaction
         a = self.ema = QAction('edit metadata', self)
         a.setShortcut(ema.shortcut())
         self.addAction(a)
         a.triggered.connect(self.edit_metadata)
+        vb = get_gui().iactions['View'].menuless_qaction
+        a = self.vba = QAction('view book', self)
+        a.setShortcut(vb.shortcut())
+        a.triggered.connect(self.view_book)
+        self.addAction(a)
+
+    def sizeHint(self):
+        try:
+            geom = self.screen().availableSize()
+            screen_height = geom.height() - 100
+            screen_width = geom.width() - 100
+            return QSize(max(int(screen_width/2), 700), screen_height)
+        except Exception:
+            return QSize(800, 600)
+
+    def view_book(self):
+        if self.current_row is not None:
+            book_id = self.view.model().id(self.current_row)
+            get_gui().iactions['View']._view_calibre_books((book_id,))
 
     def edit_metadata(self):
         if self.current_row is not None:
@@ -224,19 +235,19 @@ class BookInfo(QDialog):
 
     def configure(self):
         d = Configure(get_gui().current_db, self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             if self.current_row is not None:
                 mi = self.view.model().get_book_display_info(self.current_row)
                 if mi is not None:
                     self.refresh(self.current_row, mi=mi)
 
     def on_link_clicked(self, qurl):
-        link = unicode_type(qurl.toString(NO_URL_FORMATTING))
+        link = str(qurl.toString(NO_URL_FORMATTING))
         self.link_delegate(link)
 
     def done(self, r):
-        saved_layout = (bytearray(self.saveGeometry()), bytearray(self.splitter.saveState()))
-        gprefs.set('book_info_dialog_layout', saved_layout)
+        self.save_geometry(gprefs, 'book_info_dialog_geometry')
+        gprefs['book_info_dialog_splitter_state'] = bytearray(self.splitter.saveState())
         ret = QDialog.done(self, r)
         self.view.model().new_bookdisplay_data.disconnect(self.slave)
         self.view = self.link_delegate = self.gui = None
@@ -365,6 +376,6 @@ if __name__ == '__main__':
     app.current_db = db()
     get_gui.ans = app
     d = Configure(app.current_db)
-    d.exec_()
+    d.exec()
     del d
     del app

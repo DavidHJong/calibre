@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -17,7 +14,7 @@ class PluginWidget(Widget, Ui_Form):
     TITLE = _('PMLZ output')
     HELP = _('Options specific to')+' PMLZ '+_('output')
     COMMIT_NAME = 'pmlz_output'
-    ICON = I('mimetypes/unknown.png')
+    ICON = 'mimetypes/unknown.png'
 
     def __init__(self, parent, get_option, get_help, db=None, book_id=None):
         Widget.__init__(self, parent, OPTIONS['output']['pml'])

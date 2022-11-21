@@ -1,8 +1,5 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
-
-from polyglot.builtins import unicode_type
 
 
 MSGPACK_MIME = 'application/x-msgpack'
@@ -24,7 +21,7 @@ def create_encoder(for_json=False):
 
     def encoder(obj):
         if isinstance(obj, datetime):
-            return encoded(0, unicode_type(obj.isoformat()), ExtType)
+            return encoded(0, str(obj.isoformat()), ExtType)
         if isinstance(obj, (set, frozenset)):
             return encoded(1, tuple(obj), ExtType)
         if getattr(obj, '__calibre_serializable__', False):
@@ -42,7 +39,7 @@ def create_encoder(for_json=False):
                 return encoded(4, obj.as_dict(), ExtType)
         if for_json and isinstance(obj, bytes):
             return obj.decode('utf-8')
-        raise TypeError('Cannot serialize objects of type {}'.format(type(obj)))
+        raise TypeError(f'Cannot serialize objects of type {type(obj)}')
 
     return encoder
 

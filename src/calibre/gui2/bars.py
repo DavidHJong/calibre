@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -8,13 +7,15 @@ __docformat__ = 'restructuredtext en'
 
 from functools import partial
 from qt.core import (
-    Qt, QAction, QMenu, QObject, QToolBar, QToolButton, QSize, pyqtSignal, QKeySequence,
-    QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QPainter, QWidget, QPalette, sip)
+    Qt, QAction, QMenu, QObject, QToolBar, QToolButton, QSize, pyqtSignal, QKeySequence, QMenuBar,
+    QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QPainter, QWidget, QPalette, sip,
+    QHBoxLayout, QFrame)
 
 from calibre.constants import ismacos
 from calibre.gui2 import gprefs, native_menubar_defaults, config
 from calibre.gui2.throbber import ThrobbingButton
-from polyglot.builtins import itervalues, unicode_type, map, range
+from polyglot.builtins import itervalues
+from calibre.gui2.widgets2 import RightClickButton
 
 
 class RevealBar(QWidget):  # {{{
@@ -55,7 +56,7 @@ class RevealBar(QWidget):  # {{{
             painter = QPainter(self)
             pal = self.palette()
             col = pal.color(QPalette.ColorRole.Button)
-            rect.setLeft(rect.left() + (rect.width() * self._animated_size))
+            rect.setLeft(rect.left() + int(rect.width() * self._animated_size))
             painter.setClipRect(rect)
             painter.fillRect(self.rect(), col)
 # }}}
@@ -227,13 +228,13 @@ class ToolBar(QToolBar):  # {{{
             m = ac.menu()
             if m is not None:
                 if menu_mode is not None:
-                    ch.setPopupMode(menu_mode)
+                    ch.setPopupMode(QToolButton.ToolButtonPopupMode(menu_mode))
             return ch
 
     # support drag&drop from/to library, from/to reader/card, enabled plugins
     def check_iactions_for_drag(self, event, md, func):
         if self.added_actions:
-            pos = event.pos()
+            pos = event.position().toPoint()
             for iac in itervalues(self.gui.iactions):
                 if iac.accepts_drops:
                     aa = iac.qaction
@@ -300,7 +301,7 @@ class ToolBar(QToolBar):  # {{{
 
         mime = 'application/calibre+from_device'
         if md.hasFormat(mime):
-            paths = [unicode_type(u.toLocalFile()) for u in md.urls()]
+            paths = [str(u.toLocalFile()) for u in md.urls()]
             if paths:
                 self.gui.iactions['Add Books'].add_books_from_device(
                         self.gui.current_view(), paths=paths)
@@ -533,17 +534,15 @@ else:
                     ac = ia.shortcut_action_for_context_menu
                 m.addAction(ac)
 
-    from calibre.gui2.dbus_export.widgets import factory
-
     class MenuBar(QObject):
 
         is_native_menubar = False
 
         def __init__(self, location_manager, parent):
             QObject.__init__(self, parent)
-            f = factory(app_id='com.calibre-ebook.gui')
-            self.menu_bar = f.create_window_menubar(parent)
-            self.is_native_menubar = self.menu_bar.is_native_menubar
+            self.menu_bar = QMenuBar(parent)
+            self.menu_bar.is_native_menubar = False
+            parent.setMenuBar(self.menu_bar)
             self.gui = parent
 
             self.location_manager = location_manager
@@ -607,7 +606,7 @@ else:
 # }}}
 
 
-class AdaptMenuBarForDialog(object):
+class AdaptMenuBarForDialog:
 
     def __init__(self, menu_bar):
         self.menu_bar = menu_bar
@@ -621,9 +620,100 @@ class AdaptMenuBarForDialog(object):
             self.menu_bar.adapt_for_dialog(False)
 
 
+class SearchToolBar(QHBoxLayout):
+    # Simulate an instance of the above Toolbar class using widgets instead of
+    # actions. The tool buttons are fixed size and the text is either gone or to
+    # the right.
+
+    def __init__(self, gui):
+        QHBoxLayout.__init__(self)
+        self.search_tool_bar_widgets = []
+        self.gui = gui
+        self.donate_button = None
+
+    def init_bar(self, actions):
+        for widget in self.search_tool_bar_widgets:
+            self.removeWidget(widget)
+
+        self.setContentsMargins(0, 0, 10, 0)
+        self.setSpacing(0)
+
+        self.search_tool_bar_widgets = []
+        self.search_tool_bar_actions = []
+        for what in gprefs['action-layout-searchbar']:
+            if what is None:
+                frame = QFrame()
+                frame.setFrameShape(QFrame.Shape.VLine)
+                frame.setFrameShadow(QFrame.Shadow.Sunken)
+                frame.setLineWidth(1)
+                frame.setContentsMargins(0, 5, 0, 5)
+                self.addWidget(frame)
+                self.search_tool_bar_widgets.append(frame)
+                self.search_tool_bar_actions.append(None)
+            elif what in self.gui.iactions:
+                act = self.gui.iactions[what]
+                qact = act.qaction
+                tb = RightClickButton()
+                tb.menu = qact.menu
+                tb.setContentsMargins(0, 0, 0, 0)
+                tb.setDefaultAction(qact)
+                if not gprefs['search_tool_bar_shows_text']:
+                    tb.setText(None)
+                else:
+                    tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                self.addWidget(tb)
+                self.search_tool_bar_widgets.append(tb)
+                self.search_tool_bar_actions.append(qact)
+                self.setup_tool_button(self, qact, act.popup_type)
+
+    def widgetForAction(self, action):
+        try:
+            dex = self.search_tool_bar_actions.index(action)
+            return self.search_tool_bar_widgets[dex]
+        except Exception:
+            return None
+
+    def setup_tool_button(self, bar, ac, menu_mode=None):
+        widget = self.widgetForAction(ac)
+        if widget is None:
+            return
+        widget.setCursor(Qt.CursorShape.PointingHandCursor)
+        if hasattr(widget, 'setAutoRaise'):  # is a QToolButton or similar
+            widget.setAutoRaise(True)
+            m = ac.menu()
+            if m is not None:
+                if menu_mode is not None:
+                    widget.setPopupMode(QToolButton.ToolButtonPopupMode(menu_mode))
+            return widget
+
+    def setIconSize(self, *args):
+        pass
+
+    def setToolButtonStyle(self, *args):
+        pass
+
+    def isVisible(self):
+        return True
+
+    def setVisible(self, toWhat):
+        pass
+
+    def update_lm_actions(self, *args):
+        pass
+
+    @property
+    def showing_donate(self):
+        return False
+
+    @property
+    def added_actions(self):
+        return self.search_tool_bar_actions
+
+
 class BarsManager(QObject):
 
     def __init__(self, donate_action, location_manager, parent):
+        self.gui = parent
         QObject.__init__(self, parent)
         self.location_manager = location_manager
 
@@ -631,6 +721,7 @@ class BarsManager(QObject):
         self.main_bars = tuple(bars[:2])
         self.child_bars = tuple(bars[2:])
         self.reveal_bar = RevealBar(parent)
+        self.search_tool_bar = SearchToolBar(parent)
 
         self.menu_bar = MenuBar(self.location_manager, self.parent())
         is_native_menubar = self.menu_bar.is_native_menubar
@@ -639,6 +730,7 @@ class BarsManager(QObject):
         self.menubar_device_fallback = native_menubar_defaults['action-layout-menubar-device'] if is_native_menubar else ()
 
         self.apply_settings()
+        self.search_tool_bar_actions = []
         self.init_bars()
 
     def database_changed(self, db):
@@ -646,8 +738,7 @@ class BarsManager(QObject):
 
     @property
     def bars(self):
-        for x in self.main_bars + self.child_bars:
-            yield x
+        yield from self.main_bars + self.child_bars + (self.search_tool_bar, )
 
     @property
     def showing_donate(self):
@@ -673,11 +764,14 @@ class BarsManager(QObject):
         for bar, actions in zip(self.bars, self.bar_actions[:3]):
             bar.init_bar(actions)
 
+        # Build the layout containing the buttons to go into the search bar
+        self.search_tool_bar.init_bar(gprefs['action-layout-searchbar'])
+
     def update_bars(self, reveal_bar=False):
         '''
         This shows the correct main toolbar and rebuilds the menubar based on
         whether a device is connected or not. Note that the toolbars are
-        explicitly not rebuilt, this is to workaround a Qt limitation iwth
+        explicitly not rebuilt, this is to workaround a Qt limitation with
         QToolButton's popup menus and modal dialogs. If you want the toolbars
         rebuilt, call init_bars().
         '''
@@ -697,6 +791,7 @@ class BarsManager(QObject):
         self.menu_bar.init_bar(self.bar_actions[4 if showing_device else 3])
         self.menu_bar.update_lm_actions()
         self.menu_bar.setVisible(bool(self.menu_bar.added_actions))
+        # No need to update the Searchbar
 
     def apply_settings(self):
         sz = gprefs['toolbar_icon_size']
@@ -708,6 +803,6 @@ class BarsManager(QObject):
         for bar in self.bars:
             bar.setIconSize(QSize(sz, sz))
             bar.setToolButtonStyle(style)
-            if bar.showing_donate:
+            if bar.donate_button:
                 bar.donate_button.setIconSize(bar.iconSize())
                 bar.donate_button.setToolButtonStyle(style)

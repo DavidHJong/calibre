@@ -30,6 +30,7 @@ def update_settings(settings):
     opts.paged_taps_scroll_by_screen = v'!!settings.paged_taps_scroll_by_screen'
     opts.scroll_auto_boundary_delay = settings.scroll_auto_boundary_delay
     opts.scroll_stop_boundaries = v'!!settings.scroll_stop_boundaries'
+    opts.reverse_page_turn_zones = v'!!settings.reverse_page_turn_zones'
     opts.user_stylesheet = settings.user_stylesheet
 
 update_settings()
@@ -57,17 +58,31 @@ styles_id = 'calibre-color-scheme-style-overrides'
 
 
 def apply_colors(is_content_popup):
+    des = document.documentElement.style
+    des.setProperty('--calibre-viewer-background-color', opts.color_scheme.background)
+    des.setProperty('--calibre-viewer-foreground-color', opts.color_scheme.foreground)
+    des.colorScheme = 'dark' if opts.is_dark_theme else 'light'
+    if opts.color_scheme.link:
+        des.setProperty('--calibre-viewer-link-color', opts.color_scheme.link)
     for elem in (document.documentElement, document.body):
         elem.style.color = opts.color_scheme.foreground
         # set background color to transparent so that the users background
         # color which is set on the iframe is used instead
         elem.style.backgroundColor = 'transparent'
-    document.documentElement.style.backgroundColor = opts.bg_image_fade
+    des.backgroundColor = opts.bg_image_fade
     ss = document.getElementById('calibre-color-scheme-style-overrides')
     if not ss:
         ss = E.style(id=styles_id, type='text/css')
         document.documentElement.appendChild(ss)
     text = ''
+    if runtime.is_standalone_viewer and 'macos' in window.navigator.userAgent:
+        # Change the hyphenate character to a plain ASCII minus (U+002d) the default
+        # is U+2010 but that does not render with the default Times font on macOS as of Monterey
+        # and Qt 15.5 See https://bugs.launchpad.net/bugs/1951467 and can be easily reproduced
+        # by converting a plain text file with the --pdf-hyphenate option
+        # https://bugs.chromium.org/p/chromium/issues/detail?id=1267606 (fix released Feb 1 2022 v98)
+        # See also pdf-preprint.js
+        text += '\n* { -webkit-hyphenate-character: "-" !important }\n'
     if opts.override_book_colors is not 'never':
         text = 'body'
         if opts.override_book_colors is 'dark':
@@ -175,6 +190,7 @@ def set_selection_style(style):
 
 
 def set_color_scheme_class():
+    document.documentElement.classList.add('is-calibre-viewer')
     if opts.is_dark_theme:
         document.body.classList.add('calibre-viewer-dark-colors')
         document.body.classList.remove('calibre-viewer-light-colors')

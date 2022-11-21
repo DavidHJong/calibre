@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -16,7 +15,7 @@ from calibre import prints
 from calibre.constants import ismacos
 from calibre.gui2 import Dispatcher
 from calibre.gui2.keyboard import NameConflict
-from polyglot.builtins import unicode_type, string_or_bytes
+from polyglot.builtins import string_or_bytes
 
 
 def menu_action_unique_name(plugin, unique_name):
@@ -39,8 +38,8 @@ class InterfaceAction(QObject):
     priority takes precedence.
 
     Sub-classes should implement the :meth:`genesis`, :meth:`library_changed`,
-    :meth:`location_selected` :meth:`shutting_down`
-    and :meth:`initialization_complete` methods.
+    :meth:`location_selected`, :meth:`shutting_down`,
+    :meth:`initialization_complete` and :meth:`tag_browser_context_action` methods.
 
     Once initialized, this plugin has access to the main calibre GUI via the
     :attr:`gui` member. You can access other plugins by name, for example::
@@ -72,9 +71,9 @@ class InterfaceAction(QObject):
     #: key is held down.
     auto_repeat = False
 
-    #: Of the form: (text, icon_path, tooltip, keyboard shortcut)
-    #: icon, tooltip and keyboard shortcut can be None
-    #: shortcut must be a string, None or tuple of shortcuts.
+    #: Of the form: (text, icon_path, tooltip, keyboard shortcut).
+    #: icon, tooltip and keyboard shortcut can be None.
+    #: keyboard shortcut must be either a string, None or tuple of shortcuts.
     #: If None, a keyboard shortcut corresponding to the action is not
     #: registered. If you pass an empty tuple, then the shortcut is registered
     #: with no default key binding.
@@ -98,7 +97,7 @@ class InterfaceAction(QObject):
 
     all_locations = frozenset(['toolbar', 'toolbar-device', 'context-menu',
         'context-menu-device', 'toolbar-child', 'menubar', 'menubar-device',
-        'context-menu-cover-browser', 'context-menu-split'])
+        'context-menu-cover-browser', 'context-menu-split', 'searchbar'])
 
     #: Type of action
     #: 'current' means acts on the current view
@@ -159,12 +158,12 @@ class InterfaceAction(QObject):
             spec = self.action_spec
         text, icon, tooltip, shortcut = spec
         if icon is not None:
-            action = QAction(QIcon(I(icon)), text, self.gui)
+            action = QAction(QIcon.ic(icon), text, self.gui)
         else:
             action = QAction(text, self.gui)
         if attr == 'qaction':
             if hasattr(self.action_menu_clone_qaction, 'rstrip'):
-                mt = unicode_type(self.action_menu_clone_qaction)
+                mt = str(self.action_menu_clone_qaction)
             else:
                 mt = action.text()
             self.menuless_qaction = ma = QAction(action.icon(), mt, self.gui)
@@ -183,7 +182,7 @@ class InterfaceAction(QObject):
             keys = ((shortcut,) if isinstance(shortcut, string_or_bytes) else
                     tuple(shortcut))
             if shortcut_name is None and spec[0]:
-                shortcut_name = unicode_type(spec[0])
+                shortcut_name = str(spec[0])
 
             if shortcut_name and self.action_spec[0] and not (
                     attr == 'qaction' and self.popup_type == QToolButton.ToolButtonPopupMode.InstantPopup):
@@ -195,7 +194,7 @@ class InterfaceAction(QObject):
                         persist_shortcut=persist_shortcut)
                 except NameConflict as e:
                     try:
-                        prints(unicode_type(e))
+                        prints(str(e))
                     except:
                         pass
                     shortcut_action.setShortcuts([QKeySequence(key,
@@ -230,7 +229,7 @@ class InterfaceAction(QObject):
             an UUID to it.
         :param text: The text of the action.
         :param icon: Either a QIcon or a file name. The file name is passed to
-            the I() builtin, so you do not need to pass the full path to the images
+            the QIcon.ic() builtin, so you do not need to pass the full path to the images
             folder.
         :param shortcut: A string, a list of strings, None or False. If False,
             no keyboard shortcut is registered for this action. If None, a keyboard
@@ -250,11 +249,11 @@ class InterfaceAction(QObject):
 
         '''
         if shortcut_name is None:
-            shortcut_name = unicode_type(text)
+            shortcut_name = str(text)
         ac = menu.addAction(text)
         if icon is not None:
             if not isinstance(icon, QIcon):
-                icon = QIcon(I(icon))
+                icon = QIcon.ic(icon)
             ac.setIcon(icon)
         keys = ()
         if shortcut is not None and shortcut is not False:
@@ -274,7 +273,7 @@ class InterfaceAction(QObject):
                 persist_shortcut=persist_shortcut)
             # In Qt 5 keyboard shortcuts dont work unless the
             # action is explicitly added to the main window and on OSX and
-            # Unity since the menu might be exported, the shortcuts wont work
+            # Unity since the menu might be exported, the shortcuts won't work
             self.gui.addAction(ac)
         if triggered is not None:
             ac.triggered.connect(triggered)
@@ -325,6 +324,16 @@ class InterfaceAction(QObject):
         '''
         pass
 
+    def library_about_to_change(self, olddb, db):
+        '''
+        Called whenever the current library is changed.
+
+        :param olddb: The LibraryDatabase corresponding to the previous library.
+        :param db: The LibraryDatabase corresponding to the new library.
+
+        '''
+        pass
+
     def library_changed(self, db):
         '''
         Called whenever the current library is changed.
@@ -348,6 +357,17 @@ class InterfaceAction(QObject):
         completed.
         '''
         pass
+
+    def tag_browser_context_action(self, index):
+        '''
+        Called when displaying the context menu in the Tag browser. ``index`` is
+        the QModelIndex that points to the Tag browser item that was right clicked.
+        Test it for validity with index.valid() and get the underlying TagTreeItem
+        object with index.data(Qt.ItemDataRole.UserRole). Any action objects
+        yielded by this method will be added to the context menu.
+        '''
+        if False:
+            yield QAction()
 
     def shutting_down(self):
         '''

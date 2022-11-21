@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2020, Kovid Goyal <kovid at kovidgoyal.net>
 
 from contextlib import suppress
@@ -9,7 +8,7 @@ from qt.core import (
     QWidget
 )
 
-from calibre.gui2.preferences.look_feel import BusyCursor
+from calibre.gui2.widgets import BusyCursor
 
 
 class VoicesModel(QAbstractTableModel):
@@ -19,7 +18,10 @@ class VoicesModel(QAbstractTableModel):
     def __init__(self, voice_data, default_output_module, parent=None):
         super().__init__(parent)
         self.voice_data = voice_data
-        self.current_voices = voice_data[default_output_module]
+        try:
+            self.current_voices = voice_data[default_output_module]
+        except KeyError as e:
+            raise ValueError(_('Speech dispatcher on this system is not configured with any available voices. Install some voices first.')) from e
         self.column_headers = (_('Name'), _('Language'), _('Variant'))
 
     def rowCount(self, parent=None):
@@ -199,5 +201,5 @@ if __name__ == '__main__':
     c = Client({})
     w = Widget(c, {})
     w.show()
-    app.exec_()
+    app.exec()
     print(w.backend_settings)

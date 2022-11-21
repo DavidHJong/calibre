@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -10,7 +9,6 @@ import textwrap, os, glob
 
 from calibre.customize import FileTypePlugin
 from calibre.constants import numeric_version
-from polyglot.builtins import unicode_type
 
 
 class HTML2ZIP(FileTypePlugin):
@@ -111,10 +109,10 @@ every time you add an HTML file to the library.\
         v.addWidget(bf)
         v.addWidget(button_box)
         size_dialog()
-        config_dialog.exec_()
+        config_dialog.exec()
 
         if config_dialog.result() == QDialog.DialogCode.Accepted:
-            sc = unicode_type(sc.text()).strip()
+            sc = str(sc.text()).strip()
             if bf.isChecked():
                 sc += '|bf'
             customize_plugin(self, sc)

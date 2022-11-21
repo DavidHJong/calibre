@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -12,7 +11,7 @@ from calibre.ptempfile import TemporaryDirectory
 from calibre.ptempfile import PersistentTemporaryDirectory
 from calibre.utils.logging import DevNull
 import calibre.ebooks.oeb.polish.container as pc
-from polyglot.builtins import iteritems, unicode_type
+from polyglot.builtins import iteritems
 
 
 def get_cache():
@@ -24,7 +23,7 @@ def get_cache():
 
 
 def needs_recompile(obj, srcs):
-    if isinstance(srcs, unicode_type):
+    if isinstance(srcs, str):
         srcs = [srcs]
     try:
         obj_mtime = os.stat(obj).st_mtime
@@ -56,7 +55,8 @@ def get_simple_book(fmt='epub'):
     if needs_recompile(ans, src):
         with TemporaryDirectory('bpt') as tdir:
             with CurrentDir(tdir):
-                raw = lopen(src, 'rb').read().decode('utf-8')
+                with lopen(src, 'rb') as sf:
+                    raw = sf.read().decode('utf-8')
                 raw = add_resources(raw, {
                     'LMONOI': P('fonts/liberation/LiberationMono-Italic.ttf'),
                     'LMONOR': P('fonts/liberation/LiberationMono-Regular.ttf'),
@@ -110,4 +110,4 @@ class BaseTest(unittest.TestCase):
             for link in container.iterlinks(name, get_line_numbers=False):
                 dest = container.href_to_name(link, name)
                 if dest:
-                    self.assertTrue(container.exists(dest), 'The link %s in %s does not exist' % (link, name))
+                    self.assertTrue(container.exists(dest), f'The link {link} in {name} does not exist')

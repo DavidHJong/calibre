@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -53,7 +52,7 @@ content_tokens = [(re.compile(k), v, n) for k, v, n in [
     r'outline-style|outline-width|overflow(?:-x|-y)?|padding-bottom|'
     r'padding-left|padding-right|padding-top|padding|'
     r'page-break-after|page-break-before|page-break-inside|'
-    r'break-before|break-after|'
+    r'break-before|break-after|break-inside|'
     r'pause-after|pause-before|pause|pitch|pitch-range|'
     r'play-during|position|pre-wrap|pre-line|pre|quotes|richness|right|size|'
     r'speak-header|speak-numeral|speak-punctuation|speak|'
@@ -143,7 +142,7 @@ IN_CONTENT = 4
 IN_COMMENT_CONTENT = 5
 
 
-class CSSState(object):
+class CSSState:
 
     __slots__ = ('parse', 'blocks')
 
@@ -164,7 +163,7 @@ class CSSState(object):
         return not self.__eq__(other)
 
     def __repr__(self):
-        return "CSSState(parse=%s, blocks=%s)" % (self.parse, self.blocks)
+        return f"CSSState(parse={self.parse}, blocks={self.blocks})"
     __str__ = __repr__
 
 

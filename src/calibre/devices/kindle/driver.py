@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2009, John Schember <john at nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
+
+from calibre.devices.kindle.apnx import APNXBuilder
 
 '''
 Device driver for Amazon's Kindle
@@ -12,10 +11,11 @@ Device driver for Amazon's Kindle
 import datetime, os, re, json, hashlib, errno
 
 from calibre.constants import DEBUG, filesystem_encoding
+from calibre.devices.interface import OpenPopupMessage
 from calibre.devices.kindle.bookmark import Bookmark
 from calibre.devices.usbms.driver import USBMS
 from calibre import strftime, fsync, prints
-from polyglot.builtins import unicode_type, as_bytes, as_unicode
+from polyglot.builtins import as_bytes, as_unicode
 
 '''
 Notes on collections:
@@ -58,7 +58,7 @@ class KINDLE(USBMS):
 
     name           = 'Kindle Device Interface'
     gui_name       = 'Amazon Kindle'
-    icon           = I('devices/kindle.png')
+    icon           = 'devices/kindle.png'
     description    = _('Communicate with the Kindle e-book reader.')
     author         = 'John Schember'
     supported_platforms = ['windows', 'osx', 'linux']
@@ -97,6 +97,19 @@ class KINDLE(USBMS):
         ' That will give you a regular AZW3 file that you can add to calibre normally.'
         ' Click "Show details" to see the list of books.'
     )
+
+    @classmethod
+    def get_open_popup_message(cls):
+        from calibre.utils.localization import localize_website_link
+        return OpenPopupMessage(title=_('WARNING: E-book covers'), message=_(
+            'Amazon has <b>broken display of covers</b> for books sent to the Kindle by USB cable. To workaround it,'
+            ' you have to either keep your Kindle in Airplane mode, or:'
+            '<ol><li>Send the books to the Kindle</li><li>Disconnect the Kindle and wait for the covers to be deleted'
+            ' by Amazon</li><li>Reconnect the Kindle and calibre will restore the covers.</li></ol> After this the'
+            ' covers for those books should stay put. <a href="{}">Click here</a> for details.').format(localize_website_link(
+                'https://manual.calibre-ebook.com/faq.html#covers-for-books-i'
+                '-send-to-my-e-ink-kindle-show-up-momentarily-and-then-are-replaced-by-a-generic-cover')
+        ))
 
     def is_allowed_book_file(self, filename, path, prefix):
         lpath = os.path.join(path, filename).partition(self.normalize_path(prefix))[2].replace('\\', '/')
@@ -232,7 +245,7 @@ class KINDLE(USBMS):
                     pr=percent_read)
         else:
             markup = _("%(time)s<br />Last page read: Location %(loc)d (%(pr)d%%)") % dict(
-                    time=strftime(u'%x', timestamp.timetuple()),
+                    time=strftime('%x', timestamp.timetuple()),
                     loc=last_read_location,
                     pr=percent_read)
         spanTag = BeautifulSoup('<span style="font-weight:bold">' + markup + '</span>').find('span')
@@ -313,7 +326,7 @@ class KINDLE(USBMS):
                                             bm.value.path, index_is_id=True)
         elif bm.type == 'kindle_clippings':
             # Find 'My Clippings' author=Kindle in database, or add
-            last_update = 'Last modified %s' % strftime(u'%x %X',bm.value['timestamp'].timetuple())
+            last_update = 'Last modified %s' % strftime('%x %X',bm.value['timestamp'].timetuple())
             mc_id = list(db.data.search_getting_ids('title:"My Clippings"', '', sort_results=False))
             if mc_id:
                 db.add_format_with_hooks(mc_id[0], 'TXT', bm.value['path'],
@@ -331,7 +344,7 @@ class KINDLE(USBMS):
 class KINDLE2(KINDLE):
 
     name           = 'Kindle 2/3/4/Touch/PaperWhite/Voyage Device Interface'
-    description    = _('Communicate with the Kindle 2/3/4/Touch/PaperWhite/Voyage e-book reader.')
+    description    = _('Communicate with the Kindle 2/3/4/Touch/Paperwhite/Voyage e-book reader.')
 
     FORMATS     = ['azw', 'mobi', 'azw3', 'prc', 'azw1', 'tpz', 'azw4', 'kfx', 'pobi', 'pdf', 'txt']
     DELETE_EXTS    = KINDLE.DELETE_EXTS + ['.mbp1', '.mbs', '.sdr', '.han']
@@ -340,7 +353,7 @@ class KINDLE2(KINDLE):
     # the .sdr sidecar folder
 
     PRODUCT_ID = [0x0002, 0x0004, 0x0324]
-    BCD        = [0x0100, 0x0310, 0x401]
+    BCD        = [0x0100, 0x0310, 0x401, 0x409]
     # SUPPORTS_SUB_DIRS = False # Apparently the Paperwhite doesn't like files placed in subdirectories
     # SUPPORTS_SUB_DIRS_FOR_SCAN = True
 
@@ -383,7 +396,7 @@ class KINDLE2(KINDLE):
             ' Since APNX files are usually deleted when a book is removed from'
             ' the Kindle, this is mostly useful when resending a book to the'
             ' device which is already on the device (e.g. after making a'
-            ' modification.)'),
+            ' modification).'),
 
     ]
     EXTRA_CUSTOMIZATION_DEFAULT = [
@@ -398,7 +411,7 @@ class KINDLE2(KINDLE):
     OPT_APNX_CUST_COL        = 2
     OPT_APNX_METHOD_COL      = 3
     OPT_APNX_OVERWRITE       = 4
-    EXTRA_CUSTOMIZATION_CHOICES = {OPT_APNX_METHOD:{'fast', 'accurate', 'pagebreak'}}
+    EXTRA_CUSTOMIZATION_CHOICES = {OPT_APNX_METHOD: set(APNXBuilder.generators.keys())}
 
     # x330 on the PaperWhite
     # x262 on the Touch. Doesn't choke on x330, though.
@@ -524,7 +537,7 @@ class KINDLE2(KINDLE):
             cache_dir = self.amazon_cover_bug_cache_dir()
             try:
                 os.mkdir(cache_dir)
-            except EnvironmentError:
+            except OSError:
                 pass
             with lopen(os.path.join(cache_dir, os.path.basename(tp)), 'wb') as f:
                 f.write(coverdata[2])
@@ -545,7 +558,7 @@ class KINDLE2(KINDLE):
             dest_path = os.path.join(dest_dir, name)
             try:
                 dest_stat_result = os.lstat(dest_path)
-            except EnvironmentError:
+            except OSError:
                 needs_sync = True
             else:
                 needs_sync = src_stat_result.st_size != dest_stat_result.st_size
@@ -557,7 +570,7 @@ class KINDLE2(KINDLE):
                     shutil.copyfileobj(src, dest)
                     fsync(dest)
         if DEBUG:
-            prints('Restored {} cover thumbnails that were destroyed by Amazon'.format(count))
+            prints(f'Restored {count} cover thumbnails that were destroyed by Amazon')
 
     def delete_single_book(self, path):
         try:
@@ -567,9 +580,9 @@ class KINDLE2(KINDLE):
                 for tp in (tp1, tp2):
                     try:
                         os.remove(tp)
-                    except EnvironmentError as err:
+                    except OSError as err:
                         if err.errno != errno.ENOENT:
-                            prints('Failed to delete thumbnail for {!r} at {!r} with error: {}'.format(path, tp, err))
+                            prints(f'Failed to delete thumbnail for {path!r} at {tp!r} with error: {err}')
         except Exception:
             import traceback
             traceback.print_exc()
@@ -610,7 +623,7 @@ class KINDLE2(KINDLE):
                 cust_col_name = opts.extra_customization[self.OPT_APNX_METHOD_COL]
                 if cust_col_name:
                     try:
-                        temp = unicode_type(metadata.get(cust_col_name)).lower()
+                        temp = str(metadata.get(cust_col_name)).lower()
                         if temp in self.EXTRA_CUSTOMIZATION_CHOICES[self.OPT_APNX_METHOD]:
                             method = temp
                         else:

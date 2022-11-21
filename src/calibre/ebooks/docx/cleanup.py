@@ -1,12 +1,11 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import os
-from polyglot.builtins import itervalues, range
+from polyglot.builtins import itervalues
 
 NBSP = '\xa0'
 

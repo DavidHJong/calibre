@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -10,7 +9,7 @@ import json
 import os
 import time
 from functools import partial
-from qt.core import QAction, QIcon, Qt, pyqtSignal, QDialog
+from qt.core import QAction, QIcon, pyqtSignal, QDialog
 
 from calibre.constants import ismacos, iswindows
 from calibre.gui2 import (
@@ -21,7 +20,7 @@ from calibre.gui2.actions import InterfaceAction
 from calibre.gui2.dialogs.choose_format import ChooseFormatDialog
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.config import prefs, tweaks
-from polyglot.builtins import as_bytes, unicode_type
+from polyglot.builtins import as_bytes
 
 
 def preferred_format(formats):
@@ -64,14 +63,14 @@ class ViewAction(InterfaceAction):
         cm = partial(self.create_menu_action, self.view_menu)
         self.view_specific_action = cm('specific', _('View specific format'),
                 shortcut='Alt+V', triggered=self.view_specific_format)
-        self.internal_view_action = cm('internal', _('View with calibre E-book viewer'), triggered=self.view_internal)
+        self.internal_view_action = cm('internal', _('View with calibre E-book viewer'), icon='viewer.png', triggered=self.view_internal)
         self.action_pick_random = cm('pick random', _('Read a random book'),
                 icon='random.png', triggered=self.view_random)
-        self.view_menu.addAction(QIcon(I('highlight.png')), _('Browse annotations'), self.browse_annots)
+        self.view_menu.addAction(QIcon.ic('highlight.png'), _('Browse annotations'), self.browse_annots)
         self.clear_sep1 = self.view_menu.addSeparator()
         self.clear_sep2 = self.view_menu.addSeparator()
         self.clear_history_action = cm('clear history',
-                _('Clear recently viewed list'), triggered=self.clear_history)
+                _('Clear recently viewed list'), icon='trash.png', triggered=self.clear_history)
         self.history_actions = [self.clear_sep1]
         self.action_view_last_read = ac = self.create_action(
             spec=(_('Continue reading previous book'), None, _('Continue reading the last opened book'), 'shift+v'), attr='action_view_last_read')
@@ -149,6 +148,9 @@ class ViewAction(InterfaceAction):
             title = db.title(id_, index_is_id=True)
             self._view_file(fmt_path, calibre_book_data=self.calibre_book_data(id_, format), open_at=open_at)
             self.update_history([(id_, title)])
+        else:
+            error_dialog(self.gui, _('E-book file missing'), _(
+                'The {} format file is missing from the calibre library folder').format(format), show=True)
 
     def book_downloaded_for_viewing(self, job):
         if job.failed:
@@ -157,8 +159,8 @@ class ViewAction(InterfaceAction):
         self._view_file(job.result)
 
     def _launch_viewer(self, name=None, viewer='ebook-viewer', internal=True, calibre_book_data=None, open_at=None):
-        self.gui.setCursor(Qt.CursorShape.BusyCursor)
-        try:
+        from calibre.gui2.widgets import BusyCursor
+        with BusyCursor():
             if internal:
                 args = [viewer]
                 if ismacos and 'ebook' in viewer:
@@ -166,12 +168,13 @@ class ViewAction(InterfaceAction):
 
                 if name is not None:
                     args.append(name)
-                    if open_at is not None:
-                        args.append('--open-at=' + open_at)
-                    if calibre_book_data is not None:
-                        with PersistentTemporaryFile('.json') as ptf:
-                            ptf.write(as_bytes(json.dumps(calibre_book_data)))
-                            args.append('--internal-book-data=' + ptf.name)
+                    if viewer != 'lrfviewer':
+                        if open_at is not None:
+                            args.append('--open-at=' + open_at)
+                        if calibre_book_data is not None:
+                            with PersistentTemporaryFile('.json') as ptf:
+                                ptf.write(as_bytes(json.dumps(calibre_book_data)))
+                                args.append('--internal-book-data=' + ptf.name)
                 self.gui.job_manager.launch_gui_app(viewer,
                         kwargs=dict(args=args))
             else:
@@ -180,7 +183,7 @@ class ViewAction(InterfaceAction):
                     ext = name.rpartition('.')[-1]
                     if ext:
                         try:
-                            prog = winutil.file_association(unicode_type('.' + ext))
+                            prog = winutil.file_association(str('.' + ext))
                         except Exception:
                             prog = None
                         if prog and prog.lower().endswith('calibre.exe'):
@@ -195,8 +198,6 @@ class ViewAction(InterfaceAction):
 
                 open_local_file(name)
                 time.sleep(2)  # User feedback
-        finally:
-            self.gui.unsetCursor()
 
     def _view_file(self, name, calibre_book_data=None, open_at=None):
         ext = os.path.splitext(name)[1].upper().replace('.',
@@ -209,7 +210,7 @@ class ViewAction(InterfaceAction):
         rows = list(self.gui.library_view.selectionModel().selectedRows())
         if not rows or len(rows) == 0:
             d = error_dialog(self.gui, _('Cannot view'), _('No book selected'))
-            d.exec_()
+            d.exec()
             return
 
         db = self.gui.library_view.model().db
@@ -228,7 +229,7 @@ class ViewAction(InterfaceAction):
         d = ChooseFormatDialog(self.gui, _('Choose the format to view'),
                 list(sorted(all_fmts)), show_open_with=True)
         self.gui.book_converted.connect(d.book_converted)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             formats = [[x.upper() for x in db.new_api.formats(book_id)] for book_id in book_ids]
             fmt = d.format()
             orig_num = len(rows)
@@ -266,7 +267,7 @@ class ViewAction(InterfaceAction):
         if not rows or len(rows) == 0:
             d = error_dialog(self.gui, _('Cannot open folder'),
                     _('No book selected'))
-            d.exec_()
+            d.exec()
             return
         if not self._view_check(len(rows), max_=10, skip_dialog_name='open-folder-many-check'):
             return

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -11,7 +10,7 @@ from operator import attrgetter
 from calibre.srv.errors import HTTPSimpleResponse, HTTPNotFound, RouteError
 from calibre.srv.utils import http_date
 from calibre.utils.serialize import msgpack_dumps, json_dumps, MSGPACK_MIME
-from polyglot.builtins import iteritems, itervalues, unicode_type, range, zip, filter
+from polyglot.builtins import iteritems, itervalues
 from polyglot import http_client
 from polyglot.urllib import quote as urlquote
 
@@ -102,7 +101,7 @@ def endpoint(route,
     return annotate
 
 
-class Route(object):
+class Route:
 
     var_pat = None
 
@@ -121,7 +120,7 @@ class Route(object):
         self.type_checkers = self.endpoint.types.copy()
 
         def route_error(msg):
-            return RouteError('%s is not valid: %s' % (self.endpoint.route, msg))
+            return RouteError(f'{self.endpoint.route} is not valid: {msg}')
 
         for i, p in enumerate(parts):
             if p[0] == '{':
@@ -142,7 +141,7 @@ class Route(object):
                     default = self.defaults[name] = eval(default)
                     if isinstance(default, numbers.Number):
                         self.type_checkers[name] = type(default)
-                    if is_sponge and not isinstance(default, unicode_type):
+                    if is_sponge and not isinstance(default, str):
                         raise route_error('Soak up path component must have a default value of string type')
                 else:
                     if found_optional_part is not False:
@@ -195,15 +194,15 @@ class Route(object):
         names = frozenset(kwargs)
         not_spec = self.required_names - names
         if not_spec:
-            raise RouteError('The required variable(s) %s were not specified for the route: %s' % (','.join(not_spec), self.endpoint.route))
+            raise RouteError('The required variable(s) {} were not specified for the route: {}'.format(','.join(not_spec), self.endpoint.route))
         unknown = names - self.all_names
         if unknown:
-            raise RouteError('The variable(s) %s are not part of the route: %s' % (','.join(unknown), self.endpoint.route))
+            raise RouteError('The variable(s) {} are not part of the route: {}'.format(','.join(unknown), self.endpoint.route))
 
         def quoted(x):
-            if not isinstance(x, (unicode_type, bytes)):
-                x = unicode_type(x)
-            if isinstance(x, unicode_type):
+            if not isinstance(x, (str, bytes)):
+                x = str(x)
+            if isinstance(x, str):
                 x = x.encode('utf-8')
             return urlquote(x, '')
         args = {k:'' for k in self.defaults}
@@ -217,7 +216,7 @@ class Route(object):
     __unicode__ = __repr__ = __str__
 
 
-class Router(object):
+class Router:
 
     def __init__(self, endpoints=None, ctx=None, url_prefix=None, auth_controller=None):
         self.routes = {}
@@ -241,7 +240,7 @@ class Router(object):
             return
         key = endpoint.route_key
         if key in self.routes:
-            raise RouteError('A route with the key: %s already exists as: %s' % (key, self.routes[key]))
+            raise RouteError(f'A route with the key: {key} already exists as: {self.routes[key]}')
         self.routes[key] = Route(endpoint)
         self.endpoints.add(endpoint)
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -17,19 +16,19 @@ from calibre.ebooks.mobi.utils import is_guide_ref_start
 from calibre.ebooks.oeb.base import (
     OEB_DOCS, XHTML, XHTML_NS, XML_NS, namespace, prefixname, urlnormalize
 )
-from polyglot.builtins import unicode_type, string_or_bytes
+from polyglot.builtins import string_or_bytes
 from polyglot.urllib import urldefrag
 
 
 class Buf(BytesIO):
 
     def write(self, x):
-        if isinstance(x, unicode_type):
+        if isinstance(x, str):
             x = x.encode('utf-8')
         BytesIO.write(self, x)
 
 
-class Serializer(object):
+class Serializer:
     NSRMAP = {'': None, XML_NS: 'xml', XHTML_NS: '', MBP_NS: 'mbp'}
 
     def __init__(self, oeb, images, is_periodical, write_page_breaks_after_item=True):
@@ -194,7 +193,7 @@ class Serializer(object):
         try:
             path, frag = urldefrag(urlnormalize(href))
         except ValueError:
-            # Unparseable URL
+            # Unparsable URL
             return False
         if path and base:
             path = base.abshref(path)
@@ -230,7 +229,7 @@ class Serializer(object):
                 buf.write(b'<div> <div height="1em"></div>')
             else:
                 t = tocref.title
-                if isinstance(t, unicode_type):
+                if isinstance(t, str):
                     t = t.encode('utf-8')
                 buf.write(b'<div></div> <div> <h2 height="1em"><font size="+2"><b>' + t +
                           b'</b></font></h2> <div height="1em"></div>')
@@ -250,7 +249,7 @@ class Serializer(object):
                 buf.write(b'0000000000')
                 buf.write(b' ><font size="+1"><b><u>')
                 t = tocitem.title
-                if isinstance(t, unicode_type):
+                if isinstance(t, str):
                     t = t.encode('utf-8')
                 buf.write(t)
                 buf.write(b'</u></b></font></a></li>')
@@ -365,10 +364,10 @@ class Serializer(object):
         text = text.replace('&', '&amp;')
         text = text.replace('<', '&lt;')
         text = text.replace('>', '&gt;')
-        text = text.replace(u'\u00AD', '')  # Soft-hyphen
+        text = text.replace('\u00AD', '')  # Soft-hyphen
         if quot:
             text = text.replace('"', '&quot;')
-        if isinstance(text, unicode_type):
+        if isinstance(text, str):
             text = unicodedata.normalize('NFC', text)
         self.buf.write(text.encode('utf-8'))
 

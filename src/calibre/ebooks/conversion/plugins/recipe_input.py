@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -11,7 +10,6 @@ import os
 from calibre.customize.conversion import InputFormatPlugin, OptionRecommendation
 from calibre.constants import numeric_version
 from calibre import walk
-from polyglot.builtins import unicode_type
 
 
 class RecipeDisabled(Exception):
@@ -60,6 +58,7 @@ class RecipeInput(InputFormatPlugin):
             accelerators):
         from calibre.web.feeds.recipes import compile_recipe
         opts.output_profile.flow_size = 0
+        orig_no_inline_navbars = opts.no_inline_navbars
         if file_ext == 'downloaded_recipe':
             from calibre.utils.zipfile import ZipFile
             zf = ZipFile(recipe_or_file, 'r')
@@ -141,6 +140,7 @@ class RecipeInput(InputFormatPlugin):
 
         for key, val in self.recipe_object.conversion_options.items():
             setattr(opts, key, val)
+        opts.no_inline_navbars = orig_no_inline_navbars
 
         for f in os.listdir('.'):
             if f.endswith('.opf'):
@@ -164,6 +164,6 @@ class RecipeInput(InputFormatPlugin):
 
     def save_download(self, zf):
         raw = self.recipe_source
-        if isinstance(raw, unicode_type):
+        if isinstance(raw, str):
             raw = raw.encode('utf-8')
         zf.writestr('download.recipe', raw)

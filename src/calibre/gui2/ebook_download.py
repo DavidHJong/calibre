@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2011, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -43,7 +40,7 @@ class DownloadInfo(MessageBox):
 def show_download_info(filename, parent=None):
     if not gprefs.get('show_get_books_download_info', True):
         return
-    DownloadInfo(filename, parent).exec_()
+    DownloadInfo(filename, parent).exec()
 
 
 def get_download_filename(response):
@@ -56,11 +53,12 @@ def get_download_filename(response):
 
 def download_file(url, cookie_file=None, filename=None, create_browser=None):
     if url.startswith('//'):
-        url = 'http:' + url
+        url = 'https:' + url
     try:
         br = browser() if create_browser is None else create_browser()
     except NotImplementedError:
         br = browser()
+    br.set_debug_http(True)
     if cookie_file:
         cj = MozillaCookieJar()
         cj.load(cookie_file)
@@ -76,7 +74,7 @@ def download_file(url, cookie_file=None, filename=None, create_browser=None):
     return dfilename
 
 
-class EbookDownload(object):
+class EbookDownload:
 
     def __call__(self, gui, cookie_file=None, url='', filename='', save_loc='', add_to_lib=True, tags=[], create_browser=None,
                  log=None, abort=None, notifications=None):
@@ -134,7 +132,7 @@ def start_ebook_download(callback, job_manager, gui, cookie_file=None, url='', f
     job_manager.run_threaded_job(job)
 
 
-class EbookDownloadMixin(object):
+class EbookDownloadMixin:
 
     def __init__(self, *args, **kwargs):
         pass

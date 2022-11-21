@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2009, John Schember <john at nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -14,21 +11,21 @@ for a particular device.
 import os, time, json, shutil
 from itertools import cycle
 
-from calibre.constants import numeric_version
+from calibre.constants import numeric_version, ismacos
 from calibre import prints, isbytestring, fsync
-from calibre.constants import filesystem_encoding, DEBUG
+from calibre.constants import filesystem_encoding, is_debugging
 from calibre.devices.usbms.cli import CLI
 from calibre.devices.usbms.device import Device
 from calibre.devices.usbms.books import BookList, Book
 from calibre.ebooks.metadata.book.json_codec import JsonCodec
-from polyglot.builtins import itervalues, unicode_type, string_or_bytes, zip
+from polyglot.builtins import itervalues, string_or_bytes
 
 
 def debug_print(*args, **kw):
     base_time = getattr(debug_print, 'base_time', None)
     if base_time is None:
         debug_print.base_time = base_time = time.monotonic()
-    if DEBUG:
+    if is_debugging():
         prints('DEBUG: %6.1f'%(time.monotonic()-base_time), *args, **kw)
 
 
@@ -68,8 +65,7 @@ def safe_walk(top, topdown=True, onerror=None, followlinks=False, maxdepth=128):
     for name in dirs:
         new_path = join(top, name)
         if followlinks or not islink(new_path):
-            for x in safe_walk(new_path, topdown, onerror, followlinks, maxdepth-1):
-                yield x
+            yield from safe_walk(new_path, topdown, onerror, followlinks, maxdepth-1)
     if not topdown:
         yield top, dirs, nondirs
 
@@ -107,14 +103,14 @@ class USBMS(CLI, Device):
         if not isinstance(dinfo, dict):
             dinfo = {}
         if dinfo.get('device_store_uuid', None) is None:
-            dinfo['device_store_uuid'] = unicode_type(uuid.uuid4())
+            dinfo['device_store_uuid'] = str(uuid.uuid4())
         if dinfo.get('device_name', None) is None:
             dinfo['device_name'] = self.get_gui_name()
         if name is not None:
             dinfo['device_name'] = name
         dinfo['location_code'] = location_code
         dinfo['last_library_uuid'] = getattr(self, 'current_library_uuid', None)
-        dinfo['calibre_version'] = '.'.join([unicode_type(i) for i in numeric_version])
+        dinfo['calibre_version'] = '.'.join([str(i) for i in numeric_version])
         dinfo['date_last_connected'] = isoformat(now())
         dinfo['prefix'] = prefix.replace('\\', '/')
         return dinfo
@@ -148,24 +144,37 @@ class USBMS(CLI, Device):
     def get_device_information(self, end_session=True):
         self.report_progress(1.0, _('Get device information...'))
         self.driveinfo = {}
+
+        def raise_os_error(e):
+            raise OSError(_('Failed to access files in the main memory of'
+                    ' your device. You should contact the device'
+                    ' manufacturer for support. Common fixes are:'
+                    ' try a different USB cable/USB port on your computer.'
+                    ' If you device has a "Reset to factory defaults" type'
+                    ' of setting somewhere, use it. Underlying error: %s')
+                    % e) from e
+
         if self._main_prefix is not None:
             try:
                 self.driveinfo['main'] = self._update_driveinfo_file(self._main_prefix, 'main')
-            except (IOError, OSError) as e:
-                raise IOError(_('Failed to access files in the main memory of'
-                        ' your device. You should contact the device'
-                        ' manufacturer for support. Common fixes are:'
-                        ' try a different USB cable/USB port on your computer.'
-                        ' If you device has a "Reset to factory defaults" type'
-                        ' of setting somewhere, use it. Underlying error: %s')
-                        % e)
+            except PermissionError as e:
+                if ismacos:
+                    raise PermissionError(_(
+                        'Permission was denied by macOS trying to access files in the main memory of'
+                        ' your device. You will need to grant permission explicitly by looking under'
+                        ' System Preferences > Security and Privacy > Privacy > Files and Folders.'
+                        ' Underlying error: %s'
+                    ) % e) from e
+                raise_os_error(e)
+            except OSError as e:
+                raise_os_error(e)
         try:
             if self._card_a_prefix is not None:
                 self.driveinfo['A'] = self._update_driveinfo_file(self._card_a_prefix, 'A')
             if self._card_b_prefix is not None:
                 self.driveinfo['B'] = self._update_driveinfo_file(self._card_b_prefix, 'B')
-        except (IOError, OSError) as e:
-            raise IOError(_('Failed to access files on the SD card in your'
+        except OSError as e:
+            raise OSError(_('Failed to access files on the SD card in your'
                 ' device. This can happen for many reasons. The SD card may be'
                 ' corrupted, it may be too large for your device, it may be'
                 ' write-protected, etc. Try a different SD card, or reformat'

@@ -27,13 +27,12 @@ from calibre.utils.localization import get_lang
 from calibre.ptempfile import TemporaryDirectory
 from calibre.constants import __appname__, __version__
 from calibre import guess_type, xml_replace_entities
-from polyglot.builtins import unicode_type, zip
 from polyglot.urllib import unquote, urldefrag, urlparse
 
 __all__ = ['OEBReader']
 
 
-class OEBReader(object):
+class OEBReader:
     """Read an OEBPS 1.x or OPF/OPS 2.0 file collection."""
 
     COVER_SVG_XP    = XPath('h:body//svg:svg[position() = 1]')
@@ -90,10 +89,10 @@ class OEBReader(object):
                 continue
             if namespace(elem.tag) in DC_NSES:
                 tag = barename(elem.tag).lower()
-                elem.tag = '{%s}%s' % (DC11_NS, tag)
+                elem.tag = f'{{{DC11_NS}}}{tag}'
             if elem.tag.startswith('dc:'):
                 tag = elem.tag.partition(':')[-1].lower()
-                elem.tag = '{%s}%s' % (DC11_NS, tag)
+                elem.tag = f'{{{DC11_NS}}}{tag}'
             metadata.append(elem)
         for element in xpath(opf, 'o2:metadata//o2:meta'):
             metadata.append(element)
@@ -145,7 +144,7 @@ class OEBReader(object):
                 dict(a=__appname__, v=__version__)
         meta_info_to_oeb_metadata(mi, self.oeb.metadata, self.logger)
         m = self.oeb.metadata
-        m.add('identifier', unicode_type(uuid.uuid4()), id='uuid_id', scheme='uuid')
+        m.add('identifier', str(uuid.uuid4()), id='uuid_id', scheme='uuid')
         self.oeb.uid = self.oeb.metadata.identifier[-1]
         if not m.title:
             m.add('title', self.oeb.translate(__('Unknown')))
@@ -448,7 +447,7 @@ class OEBReader(object):
         ncx = item.data
         title = ''.join(xpath(ncx, 'ncx:docTitle/ncx:text/text()'))
         title = COLLAPSE_RE.sub(' ', title.strip())
-        title = title or unicode_type(self.oeb.metadata.title[0])
+        title = title or str(self.oeb.metadata.title[0])
         toc = self.oeb.toc
         toc.title = title
         navmaps = xpath(ncx, 'ncx:navMap')
@@ -626,7 +625,7 @@ class OEBReader(object):
             writer = OEBWriter()
             writer(self.oeb, tdir)
             path = os.path.join(tdir, unquote(hcover.href))
-            data = render_html_svg_workaround(path, self.logger)
+            data = render_html_svg_workaround(path, self.logger, root=tdir)
             if not data:
                 data = b''
         id, href = self.oeb.manifest.generate('cover', 'cover.jpg')
@@ -635,7 +634,7 @@ class OEBReader(object):
 
     def _locate_cover_image(self):
         if self.oeb.metadata.cover:
-            id = unicode_type(self.oeb.metadata.cover[0])
+            id = str(self.oeb.metadata.cover[0])
             item = self.oeb.manifest.ids.get(id, None)
             if item is not None and item.media_type in OEB_IMAGES:
                 return item

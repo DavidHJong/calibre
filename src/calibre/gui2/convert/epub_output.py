@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -17,7 +16,7 @@ class PluginWidget(Widget, Ui_Form):
     TITLE = _('EPUB output')
     HELP  = _('Options specific to')+' EPUB '+_('output')
     COMMIT_NAME = 'epub_output'
-    ICON = I('mimetypes/epub.png')
+    ICON = 'mimetypes/epub.png'
 
     def __init__(self, parent, get_option, get_help, db=None, book_id=None):
         Widget.__init__(self, parent, OPTIONS['output']['epub'])

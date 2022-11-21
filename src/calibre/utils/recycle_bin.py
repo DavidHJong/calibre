@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -11,7 +10,6 @@ import os, shutil, time, sys
 from calibre import isbytestring
 from calibre.constants import (iswindows, ismacos, filesystem_encoding,
         islinux)
-from polyglot.builtins import unicode_type
 
 recycle = None
 
@@ -29,7 +27,7 @@ if iswindows:
             recycler = start_pipe_worker('from calibre.utils.recycle_bin import recycler_main; recycler_main()')
 
     def recycle_path(path):
-        winutil.move_to_trash(unicode_type(path))
+        winutil.move_to_trash(str(path))
 
     def recycler_main():
         stdin = getattr(sys.stdin, 'buffer', sys.stdin)

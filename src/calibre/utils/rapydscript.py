@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -12,15 +11,15 @@ import sys
 
 from calibre import force_unicode
 from calibre.constants import (
-    FAKE_HOST, FAKE_PROTOCOL, __appname__, __version__, builtin_colors_dark,
-    builtin_colors_light, builtin_decorations, dark_link_color
+    FAKE_HOST, FAKE_PROTOCOL, SPECIAL_TITLE_FOR_WEBENGINE_COMMS, __appname__,
+    __version__, builtin_colors_dark, builtin_colors_light, builtin_decorations,
+    dark_link_color
 )
 from calibre.ptempfile import TemporaryDirectory
 from calibre.utils.filenames import atomic_rename
-from polyglot.builtins import as_bytes, as_unicode, exec_path, unicode_type, zip
+from polyglot.builtins import as_bytes, as_unicode, exec_path
 
 COMPILER_PATH = 'rapydscript/compiler.js.xz'
-special_title = '__webengine_messages_pending__'
 
 
 def abspath(x):
@@ -60,8 +59,11 @@ def compiler():
 
     from calibre import walk
     from calibre.gui2 import must_use_qt
-    from calibre.gui2.webengine import secure_webengine
+    from calibre.utils.webengine import (
+        secure_webengine, setup_default_profile, setup_profile
+    )
     must_use_qt()
+    setup_default_profile()
 
     with lzma.open(P(COMPILER_PATH, allow_user_override=False)) as lzf:
         compiler_script = lzf.read().decode('utf-8')
@@ -125,7 +127,8 @@ document.title = 'compiler initialized';
     class Compiler(QWebEnginePage):
 
         def __init__(self):
-            QWebEnginePage.__init__(self)
+            super().__init__()
+            setup_profile(self.profile())
             self.errors = []
             secure_webengine(self)
             script = compiler_script
@@ -139,10 +142,10 @@ document.title = 'compiler initialized';
             QApplication.instance().processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
         def javaScriptConsoleMessage(self, level, msg, line_num, source_id):
-            if level:
+            if level == QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel:
                 self.errors.append(msg)
             else:
-                print('{}:{}:{}'.format(source_id, line_num, msg))
+                print(f'{source_id}:{line_num}:{msg}')
 
         def __call__(self, src, options):
             self.compiler_result = null = object()
@@ -196,7 +199,7 @@ def module_cache_dir():
         _cache_dir = os.path.join(base, '.build-cache', 'pyj')
         try:
             os.makedirs(_cache_dir)
-        except EnvironmentError as e:
+        except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
     return _cache_dir
@@ -206,7 +209,7 @@ def ok_to_import_webengine():
     from qt.core import QApplication
     if QApplication.instance() is None:
         return True
-    if 'PyQt5.QtWebEngineWidgets' in sys.modules:
+    if 'PyQt6.QtWebEngineCore' in sys.modules:
         return True
     return False
 
@@ -304,7 +307,7 @@ def compile_fast(
     if omit_baselib:
         args.append('--omit-baselib')
     if js_version:
-        args.append('--js-version={}'.format(js_version or 6))
+        args.append(f'--js-version={js_version or 6}')
     if not isinstance(data, bytes):
         data = data.encode('utf-8')
     if filename:
@@ -331,22 +334,23 @@ def atomic_write(base, name, content):
 
 
 def run_rapydscript_tests():
-    from urllib.parse import parse_qs
     from qt.core import QApplication, QByteArray, QEventLoop, QUrl
     from qt.webengine import (
         QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineUrlRequestJob,
-        QWebEngineUrlScheme, QWebEngineUrlSchemeHandler
+        QWebEngineUrlSchemeHandler
     )
+    from urllib.parse import parse_qs
 
     from calibre.constants import FAKE_HOST, FAKE_PROTOCOL
     from calibre.gui2 import must_use_qt
     from calibre.gui2.viewer.web_view import send_reply
-    from calibre.gui2.webengine import secure_webengine, insert_scripts, create_script
+    from calibre.utils.webengine import (
+        create_script, insert_scripts, secure_webengine, setup_default_profile,
+        setup_fake_protocol, setup_profile
+    )
     must_use_qt()
-    scheme = QWebEngineUrlScheme(FAKE_PROTOCOL.encode('ascii'))
-    scheme.setSyntax(QWebEngineUrlScheme.Syntax.Host)
-    scheme.setFlags(QWebEngineUrlScheme.Flag.SecureScheme)
-    QWebEngineUrlScheme.registerScheme(scheme)
+    setup_default_profile()
+    setup_fake_protocol()
 
     base = base_dir()
     rapydscript_dir = os.path.join(base, 'src', 'pyj')
@@ -379,13 +383,14 @@ def run_rapydscript_tests():
             if fail_code is None:
                 fail_code = QWebEngineUrlRequestJob.Error.UrlNotFound
             rq.fail(fail_code)
-            print("Blocking FAKE_PROTOCOL request: {}".format(rq.requestUrl().toString()), file=sys.stderr)
+            print(f"Blocking FAKE_PROTOCOL request: {rq.requestUrl().toString()}", file=sys.stderr)
 
     class Tester(QWebEnginePage):
 
         def __init__(self):
             profile = QWebEngineProfile(QApplication.instance())
             profile.setHttpUserAgent('calibre-tester')
+            setup_profile(profile)
             insert_scripts(profile, create_script('test-rapydscript.js', js, on_subframes=False))
             url_handler = UrlSchemeHandler(profile)
             profile.installUrlSchemeHandler(QByteArray(FAKE_PROTOCOL.encode('ascii')), url_handler)
@@ -410,7 +415,7 @@ def run_rapydscript_tests():
             self.working = False
 
         def javaScriptConsoleMessage(self, level, msg, line_num, source_id):
-            print(msg, file=sys.stderr if level > 0 else sys.stdout)
+            print(msg, file=sys.stdout if level == QWebEnginePage.JavaScriptConsoleMessageLevel.InfoMessageLevel else sys.stderr)
 
     tester = Tester()
     result = tester.spin_loop()
@@ -419,7 +424,7 @@ def run_rapydscript_tests():
 
 def set_data(src, **kw):
     for k, v in {
-        '__SPECIAL_TITLE__': special_title,
+        '__SPECIAL_TITLE__': SPECIAL_TITLE_FOR_WEBENGINE_COMMS,
         '__FAKE_PROTOCOL__': FAKE_PROTOCOL,
         '__FAKE_HOST__': FAKE_HOST,
         '__CALIBRE_VERSION__': __version__,
@@ -475,7 +480,7 @@ def compile_srv():
     rapydscript_dir = os.path.join(base, 'src', 'pyj')
     rb = os.path.join(base, 'src', 'calibre', 'srv', 'render_book.py')
     with lopen(rb, 'rb') as f:
-        rv = unicode_type(int(re.search(br'^RENDER_VERSION\s+=\s+(\d+)', f.read(), re.M).group(1)))
+        rv = str(int(re.search(br'^RENDER_VERSION\s+=\s+(\d+)', f.read(), re.M).group(1)))
     mathjax_version = json.loads(P('mathjax/manifest.json', data=True, allow_user_override=False))['etag']
     base = os.path.join(base, 'resources', 'content-server')
     fname = os.path.join(rapydscript_dir, 'srv.pyj')
@@ -502,7 +507,7 @@ def create_pot(source_files):
         'package_version': __version__,
         'bugs_address': 'https://bugs.launchpad.net/calibre'
     })
-    c.eval('window.catalog = {{}}; window.gettext_options = {}; 1'.format(gettext_options))
+    c.eval(f'window.catalog = {{}}; window.gettext_options = {gettext_options}; 1')
     for fname in source_files:
         with open(fname, 'rb') as f:
             code = f.read().decode('utf-8')

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 # License: GPLv3 Copyright: 2009, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -11,7 +10,6 @@ from calibre.constants import preferred_encoding
 from calibre.ebooks.metadata import authors_to_string
 from calibre.ptempfile import TemporaryDirectory
 from calibre.utils.ipc.simple_worker import WorkerError, fork_job
-from polyglot.builtins import unicode_type
 
 
 def get_podofo():
@@ -22,7 +20,7 @@ def get_podofo():
 def prep(val):
     if not val:
         return ''
-    if not isinstance(val, unicode_type):
+    if not isinstance(val, str):
         val = val.decode(preferred_encoding, 'replace')
     return val.strip()
 
@@ -165,7 +163,7 @@ def test_dedup_type3_fonts(src):
     num = dedup_type3_fonts(p)
     dest = src.rpartition('.')[0] + '-removed.pdf'
     p.save(dest)
-    print('Modified pdf with {} glyphs removed saved to:'.format(num), dest)
+    print(f'Modified pdf with {num} glyphs removed saved to:', dest)
 
 
 def test_list_fonts(src):
@@ -214,7 +212,7 @@ def test_podofo():
         p = podofo.PDFDoc()
         p.open(f.name)
         if (p.title, p.author) != (mi.title, mi.authors[0]):
-            raise ValueError('podofo failed to set title and author in Info dict %s != %s' % (
+            raise ValueError('podofo failed to set title and author in Info dict {} != {}'.format(
                 (p.title, p.author), (mi.title, mi.authors[0])))
         if not p.get_xmp_metadata():
             raise ValueError('podofo failed to write XMP packet')

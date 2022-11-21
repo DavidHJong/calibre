@@ -1,4 +1,6 @@
 #define UNICODE
+#define PY_SSIZE_T_CLEAN
+
 #include <Python.h>
 #include <datetime.h>
 #include <errno.h>
@@ -439,7 +441,7 @@ speedup_iso_8601(PyObject *self, PyObject *args) {
 #define FREEBSD_SET_NAME
 #endif
 #if defined(__APPLE__)
-// I cant figure out how to get pthread.h to include this definition on macOS. MACOSX_DEPLOYMENT_TARGET does not work.
+// I can't figure out how to get pthread.h to include this definition on macOS. MACOSX_DEPLOYMENT_TARGET does not work.
 extern int pthread_setname_np(const char *name);
 #elif defined(FREEBSD_SET_NAME)
 // Function has a different name on FreeBSD

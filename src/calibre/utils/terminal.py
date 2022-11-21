@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 
 __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -9,7 +8,7 @@ import os, sys, re
 
 from calibre.prints import is_binary
 from calibre.constants import iswindows
-from polyglot.builtins import iteritems, range, zip
+from polyglot.builtins import iteritems
 
 if iswindows:
     import ctypes.wintypes
@@ -102,7 +101,7 @@ def colored(text, fg=None, bg=None, bold=False):
     return prefix + text + suffix
 
 
-class Detect(object):
+class Detect:
 
     def __init__(self, stream):
         self.stream = stream or sys.stdout
@@ -156,7 +155,7 @@ class ANSIStream(Detect):
     ANSI_RE = r'\033\[((?:\d|;)*)([a-zA-Z])'
 
     def __init__(self, stream=None):
-        super(ANSIStream, self).__init__(stream)
+        super().__init__(stream)
         self.encoding = getattr(self.stream, 'encoding', None) or 'utf-8'
         self._ansi_re_bin = self._ansi_re_unicode = None
 

@@ -1,19 +1,18 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import datetime
+import datetime, os
 from io import BytesIO
 from time import time
 
 from calibre.utils.date import utc_tz
 from calibre.utils.localization import calibre_langcode_to_name
 from calibre.db.tests.base import BaseTest
-from polyglot.builtins import iteritems, itervalues, range
+from polyglot.builtins import iteritems, itervalues
 
 
 def p(x):
@@ -325,7 +324,6 @@ class ReadingTest(BaseTest):
             'formats:#>1', 'formats:#=1', 'formats:=fmt1', 'formats:=fmt2',
             'formats:=fmt1 or formats:fmt2', '#formats:true', '#formats:false',
             '#formats:fmt1', '#formats:fmt2', '#formats:fmt1 and #formats:fmt2',
-
         )}
         old.conn.close()
         old = None
@@ -376,6 +374,9 @@ class ReadingTest(BaseTest):
         self.assertEqual(cache.search('template:{series}#@#:b:true'), {1,2})
         self.assertEqual(cache.search('template:{series}#@#:b:false'), {3})
 
+        # test primary search
+        cache.set_field('title', {1: "Gravity’s Raiñbow"})
+        self.assertEqual(cache.search('title:"Gravity\'s Rainbow"'), {1})
         # Note that the old db searched uuid for un-prefixed searches, the new
         # db does not, for performance
 
@@ -454,6 +455,12 @@ class ReadingTest(BaseTest):
         buf = BytesIO()
         self.assertRaises(NoSuchFormat, cache.copy_format_to, 99999, 'X', buf, 'copy_format_to() failed to raise an exception for non-existent book')
         self.assertRaises(NoSuchFormat, cache.copy_format_to, 1, 'X', buf, 'copy_format_to() failed to raise an exception for non-existent format')
+        fmt = cache.formats(1)[0]
+        path = cache.format_abspath(1, fmt)
+        changed_path = os.path.join(os.path.dirname(path), 'x' + os.path.basename(path))
+        os.rename(path, changed_path)
+        self.assertEqual(cache.format_abspath(1, fmt), path)
+        self.assertFalse(os.path.exists(changed_path))
 
     # }}}
 
@@ -609,9 +616,9 @@ class ReadingTest(BaseTest):
                 if field == 'formats':
                     f = lambda x: x if x is None else tuple(x)
                 self.assertEqual(f(getattr(mi, field)), f(getattr(pmi, field)),
-                                'Standard field: %s not the same for book %s' % (field, book_id))
+                                f'Standard field: {field} not the same for book {book_id}')
                 self.assertEqual(mi.format_field(field), pmi.format_field(field),
-                                'Standard field format: %s not the same for book %s' % (field, book_id))
+                                f'Standard field format: {field} not the same for book {book_id}')
 
                 def f(x):
                     try:
@@ -627,9 +634,9 @@ class ReadingTest(BaseTest):
             for field, meta in cache.field_metadata.custom_iteritems():
                 if meta['datatype'] != 'composite':
                     self.assertEqual(f(getattr(mi, field)), f(getattr(pmi, field)),
-                                    'Custom field: %s not the same for book %s' % (field, book_id))
+                                    f'Custom field: {field} not the same for book {book_id}')
                     self.assertEqual(mi.format_field(field), pmi.format_field(field),
-                                    'Custom field format: %s not the same for book %s' % (field, book_id))
+                                    f'Custom field format: {field} not the same for book {book_id}')
 
         # Test handling of recursive templates
         cache.create_custom_column('comp2', 'comp2', 'composite', False, display={'composite_template':'{title}'})
@@ -743,4 +750,146 @@ class ReadingTest(BaseTest):
             if not isinstance(val, bytes):
                 val = val.encode('utf-8')
             self.assertEqual(got, val)
+    # }}}
+
+    def test_template_db_functions(self):  # {{{
+        from calibre.ebooks.metadata.book.formatter import SafeFormat
+        formatter = SafeFormat()
+
+        db = self.init_cache(self.library_path)
+        db.create_custom_column('mult', 'CC1', 'composite', True, display={'composite_template': 'b,a,c'})
+
+        # need an empty metadata object to pass to the formatter
+        db = self.init_legacy(self.library_path)
+        mi = db.get_metadata(1)
+
+        # test counting books matching the search
+        v = formatter.safe_format('program: book_count("series:true", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(v, '2')
+
+        # test counting books when none match the search
+        v = formatter.safe_format('program: book_count("series:afafaf", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(v, '0')
+
+        # test is_multiple values
+        v = formatter.safe_format('program: book_values("tags", "tags:true", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(set(v.split(',')), {'Tag One', 'News', 'Tag Two'})
+
+        # test not is_multiple values
+        v = formatter.safe_format('program: book_values("series", "series:true", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(v, 'A Series One')
+
+        # test returning values for a column not searched for
+        v = formatter.safe_format('program: book_values("tags", "series:\\"A Series One\\"", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(set(v.split(',')), {'Tag One', 'News', 'Tag Two'})
+
+        # test getting a singleton value from books where the column is empty
+        v = formatter.safe_format('program: book_values("series", "series:false", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(v, '')
+
+        # test getting a multiple value from books where the column is empty
+        v = formatter.safe_format('program: book_values("tags", "tags:false", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(v, '')
+
+        # test fetching an unknown column
+        v = formatter.safe_format('program: book_values("taaags", "tags:false", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(v, "TEMPLATE ERROR The column taaags doesn't exist")
+
+        # test finding all books
+        v = formatter.safe_format('program: book_values("id", "title:true", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(set(v.split(',')), {'1', '2', '3'})
+
+        # test getting value of a composite
+        v = formatter.safe_format('program: book_values("#mult", "id:1", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(set(v.split(',')), {'b', 'c', 'a'})
+
+        # test getting value of a custom float
+        v = formatter.safe_format('program: book_values("#float", "title:true", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(set(v.split(',')), {'20.02', '10.01'})
+
+        # test getting value of an int (rating)
+        v = formatter.safe_format('program: book_values("rating", "title:true", ",", 0)', {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(set(v.split(',')), {'4', '6'})
+    # }}}
+
+    def test_python_templates(self):  # {{{
+        from calibre.ebooks.metadata.book.formatter import SafeFormat
+        formatter = SafeFormat()
+
+        # need an empty metadata object to pass to the formatter
+        db = self.init_legacy(self.library_path)
+        mi = db.get_metadata(1)
+
+        # test counting books matching a search
+        template = '''python:
+def evaluate(book, ctx):
+    ids = ctx.db.new_api.search("series:true")
+    return str(len(ids))
+'''
+        v = formatter.safe_format(template, {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(v, '2')
+
+        # test counting books when none match the search
+        template = '''python:
+def evaluate(book, ctx):
+    ids = ctx.db.new_api.search("series:afafaf")
+    return str(len(ids))
+'''
+        v = formatter.safe_format(template, {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(v, '0')
+
+        # test is_multiple values
+        template = '''python:
+def evaluate(book, ctx):
+    tags = ctx.db.new_api.all_field_names('tags')
+    return ','.join(list(tags))
+'''
+        v = formatter.safe_format(template, {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(set(v.split(',')), {'Tag One', 'News', 'Tag Two'})
+
+        # test using a custom context class
+        template = '''python:
+def evaluate(book, ctx):
+    tags = ctx.db.new_api.all_field_names('tags')
+    return ','.join(list(ctx.helper_function(tags)))
+'''
+        from calibre.utils.formatter import PythonTemplateContext
+
+        class CustomContext(PythonTemplateContext):
+            def helper_function(self, arg):
+                s = set(arg)
+                s.add('helper called')
+                return s
+
+        v = formatter.safe_format(template, {}, 'TEMPLATE ERROR', mi,
+                                  python_context_object=CustomContext())
+        self.assertEqual(set(v.split(',')), {'Tag One', 'News', 'Tag Two','helper called'})
+
+        # test is_multiple values
+        template = '''python:
+def evaluate(book, ctx):
+    tags = ctx.db.new_api.all_field_names('tags')
+    return ','.join(list(tags))
+'''
+        v = formatter.safe_format(template, {}, 'TEMPLATE ERROR', mi)
+        self.assertEqual(set(v.split(',')), {'Tag One', 'News', 'Tag Two'})
+
+        # test calling a python stored template from a GPM template
+        from calibre.utils.formatter_functions import (
+                load_user_template_functions, unload_user_template_functions)
+        load_user_template_functions('aaaaa',
+                                     [['python_stored_template',
+                                      "",
+                                      0,
+                                      '''python:
+def evaluate(book, ctx):
+    tags = set(ctx.db.new_api.all_field_names('tags'))
+    tags.add(ctx.arguments[0])
+    return ','.join(list(tags))
+'''
+                                      ]], None)
+        v = formatter.safe_format('program: python_stored_template("one argument")', {},
+                                  'TEMPLATE ERROR', mi)
+        unload_user_template_functions('aaaaa')
+        self.assertEqual(set(v.split(',')), {'Tag One', 'News', 'Tag Two', 'one argument'})
     # }}}

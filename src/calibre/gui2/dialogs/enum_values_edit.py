@@ -1,14 +1,12 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 # License: GPLv3 Copyright: 2020, Charles Haley
 
 from qt.core import (QDialog, QColor, QDialogButtonBox, QHeaderView,
-                      QApplication, QGridLayout, QTableWidget,
+                      QGridLayout, QTableWidget,
                       QTableWidgetItem, QVBoxLayout, QToolButton, QIcon,
                       QAbstractItemView, QComboBox)
 
 from calibre.gui2 import error_dialog, gprefs
-from polyglot.builtins import unicode_type
 
 
 class EnumValuesEdit(QDialog):
@@ -23,15 +21,15 @@ class EnumValuesEdit(QDialog):
         bbox = QVBoxLayout()
         bbox.addStretch(10)
         self.del_button = QToolButton()
-        self.del_button.setIcon(QIcon(I('trash.png')))
+        self.del_button.setIcon(QIcon.ic('trash.png'))
         self.del_button.setToolTip(_('Remove the currently selected value'))
         self.ins_button = QToolButton()
-        self.ins_button.setIcon(QIcon(I('plus.png')))
+        self.ins_button.setIcon(QIcon.ic('plus.png'))
         self.ins_button.setToolTip(_('Add a new permissible value'))
         self.move_up_button= QToolButton()
-        self.move_up_button.setIcon(QIcon(I('arrow-up.png')))
+        self.move_up_button.setIcon(QIcon.ic('arrow-up.png'))
         self.move_down_button= QToolButton()
-        self.move_down_button.setIcon(QIcon(I('arrow-down.png')))
+        self.move_down_button.setIcon(QIcon.ic('arrow-down.png'))
         bbox.addWidget(self.del_button)
         bbox.addStretch(1)
         bbox.addWidget(self.ins_button)
@@ -44,7 +42,7 @@ class EnumValuesEdit(QDialog):
 
         self.del_button.clicked.connect(self.del_line)
 
-        self.all_colors = {unicode_type(s) for s in list(QColor.colorNames())}
+        self.all_colors = {str(s) for s in list(QColor.colorNames())}
 
         tl = QVBoxLayout()
         l.addItem(tl, 0, 1)
@@ -79,9 +77,7 @@ class EnumValuesEdit(QDialog):
         self.ins_button.clicked.connect(self.ins_button_clicked)
         self.move_down_button.clicked.connect(self.move_down_clicked)
         self.move_up_button.clicked.connect(self.move_up_clicked)
-        geom = gprefs.get('enum-values-edit-geometry')
-        if geom is not None:
-            QApplication.instance().safe_restore_geometry(self, geom)
+        self.restore_geometry(gprefs, 'enum-values-edit-geometry')
 
     def sizeHint(self):
         sz = QDialog.sizeHint(self)
@@ -146,20 +142,20 @@ class EnumValuesEdit(QDialog):
         self.table.setCellWidget(row, 1, c)
 
     def save_geometry(self):
-        gprefs.set('enum-values-edit-geometry', bytearray(self.saveGeometry()))
+        self.save_geometry(gprefs, 'enum-values-edit-geometry')
 
     def accept(self):
         disp = self.fm['display']
         values = []
         colors = []
         for i in range(0, self.table.rowCount()):
-            v = unicode_type(self.table.item(i, 0).text())
+            v = str(self.table.item(i, 0).text())
             if not v:
                 error_dialog(self, _('Empty value'),
                                    _('Empty values are not allowed'), show=True)
                 return
             values.append(v)
-            c = unicode_type(self.table.cellWidget(i, 1).currentText())
+            c = str(self.table.cellWidget(i, 1).currentText())
             if c:
                 colors.append(c)
 

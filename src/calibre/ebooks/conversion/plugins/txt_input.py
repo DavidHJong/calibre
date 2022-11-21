@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -9,7 +6,6 @@ import os
 
 from calibre import _ent_pat, walk, xml_entity_to_unicode
 from calibre.customize.conversion import InputFormatPlugin, OptionRecommendation
-from polyglot.builtins import getcwd
 
 MD_EXTENSIONS = {
     'abbr': _('Abbreviations'),
@@ -88,11 +84,11 @@ class TXTInput(InputFormatPlugin):
             help=_('Normally extra space at the beginning of lines is retained. '
                    'With this option they will be removed.')),
         OptionRecommendation(name="markdown_extensions", recommended_value='footnotes, tables, toc',
-            help=_('Enable extensions to markdown syntax. Extensions are formatting that is not part '
-                   'of the standard markdown format. The extensions enabled by default: %default.\n'
-                   'To learn more about markdown extensions, see {}\n'
+            help=_('Enable extensions to Markdown syntax. Extensions are formatting that is not part '
+                   'of the standard Markdown format. The extensions enabled by default: %default.\n'
+                   'To learn more about Markdown extensions, see {}\n'
                    'This should be a comma separated list of extensions to enable:\n'
-                   ).format('https://python-markdown.github.io/extensions/') + '\n'.join('* %s: %s' % (k, MD_EXTENSIONS[k]) for k in sorted(MD_EXTENSIONS))),
+                   ).format('https://python-markdown.github.io/extensions/') + '\n'.join(f'* {k}: {MD_EXTENSIONS[k]}' for k in sorted(MD_EXTENSIONS))),
     }
 
     def shift_file(self, fname, data):
@@ -101,7 +97,7 @@ class TXTInput(InputFormatPlugin):
         c = 0
         while os.path.exists(candidate):
             c += 1
-            candidate = os.path.join(self.output_dir, '{}-{}{}'.format(name, c, ext))
+            candidate = os.path.join(self.output_dir, f'{name}-{c}{ext}')
         ans = candidate
         with open(ans, 'wb') as f:
             f.write(data)
@@ -114,9 +110,9 @@ class TXTInput(InputFormatPlugin):
         for img in root.xpath('//img[@src]'):
             src = img.get('src')
             prefix = src.split(':', 1)[0].lower()
-            if prefix not in ('file', 'http', 'https', 'ftp') and not os.path.isabs(src):
+            if src and prefix not in ('file', 'http', 'https', 'ftp') and not os.path.isabs(src):
                 src = os.path.join(base_dir, src)
-                if os.access(src, os.R_OK):
+                if os.path.isfile(src) and os.access(src, os.R_OK):
                     with open(src, 'rb') as f:
                         data = f.read()
                     f = self.shift_file(os.path.basename(src), data)
@@ -143,17 +139,44 @@ class TXTInput(InputFormatPlugin):
         txt = b''
         log.debug('Reading text from file...')
         length = 0
-        base_dir = self.output_dir = getcwd()
+        base_dir = self.output_dir = os.getcwd()
 
         # Extract content from zip archive.
         if file_ext == 'txtz':
+            options.input_encoding = 'utf-8'
             zf = ZipFile(stream)
             zf.extractall('.')
 
             for x in walk('.'):
-                if os.path.splitext(x)[1].lower() in ('.txt', '.text'):
+                ext = os.path.splitext(x)[1].lower()
+                if ext in ('.txt', '.text', '.textile', '.md', '.markdown'):
+                    file_ext = ext
                     with open(x, 'rb') as tf:
                         txt += tf.read() + b'\n\n'
+            if os.path.exists('metadata.opf'):
+                from lxml import etree
+                with open('metadata.opf', 'rb') as mf:
+                    raw = mf.read()
+                try:
+                    root = etree.fromstring(raw)
+                except Exception:
+                    pass
+                else:
+                    txt_formatting = root.find('text-formatting')
+                    if txt_formatting is not None and txt_formatting.text:
+                        txt_formatting = txt_formatting.text.strip()
+                        if txt_formatting in ('plain', 'textile', 'markdown') and options.formatting_type == 'auto':
+                            log.info(f'Using metadata from TXTZ archive to set text formatting type to: {txt_formatting}')
+                            options.formatting_type = txt_formatting
+                            if txt_formatting != 'plain':
+                                options.paragraph_type = 'off'
+            if options.formatting_type == 'auto':
+                if file_ext == 'textile':
+                    options.formatting_type = txt_formatting
+                    options.paragraph_type = 'off'
+                elif file_ext in ('md', 'markdown'):
+                    options.formatting_type = txt_formatting
+                    options.paragraph_type = 'off'
         else:
             if getattr(stream, 'name', None):
                 base_dir = os.path.dirname(stream.name)
@@ -178,7 +201,7 @@ class TXTInput(InputFormatPlugin):
                 # gb2312 instead of gbk. gbk is a superset of gb2312, anyway.
                 det_encoding = 'gbk'
             ienc = det_encoding
-            log.debug('Detected input encoding as %s with a confidence of %s%%' % (ienc, confidence * 100))
+            log.debug(f'Detected input encoding as {ienc} with a confidence of {confidence * 100}%')
         if not ienc:
             ienc = 'utf-8'
             log.debug('No input encoding specified and could not auto detect using %s' % ienc)

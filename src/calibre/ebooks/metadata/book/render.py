@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -16,10 +15,9 @@ from calibre.constants import filesystem_encoding
 from calibre.library.comments import comments_to_html, markdown
 from calibre.utils.icu import sort_key
 from calibre.utils.formatter import EvalFormatter
-from calibre.utils.date import is_date_undefined
+from calibre.utils.date import is_date_undefined, format_date
 from calibre.utils.localization import calibre_langcode_to_name
 from calibre.utils.serialize import json_dumps
-from polyglot.builtins import filter
 from polyglot.binary import as_hex_unicode
 
 default_sort = ('title', 'title_sort', 'authors', 'author_sort', 'series', 'rating', 'pubdate', 'tags', 'publisher', 'identifiers')
@@ -41,7 +39,7 @@ def displayable_field_keys(mi):
             continue
         if (
                 m is not None and m.get('kind') == 'field' and m.get('datatype') is not None and
-                k not in ('au_map', 'marked', 'ondevice', 'cover', 'series_sort') and
+                k not in ('au_map', 'marked', 'ondevice', 'cover', 'series_sort', 'in_tag_browser') and
                 not k.endswith('_index')
         ):
             yield k
@@ -61,12 +59,12 @@ def search_action(search_term, value, **k):
     return action('search', term=search_term, value=value, **k)
 
 
-def search_action_with_data(search_term, value, book_id, field=None):
+def search_action_with_data(search_term, value, book_id, field=None, **k):
     field = field or search_term
-    return search_action(search_term, value, field=field, book_id=book_id)
+    return search_action(search_term, value, field=field, book_id=book_id, **k)
 
 
-DEFAULT_AUTHOR_LINK = 'search-{}'.format(DEFAULT_AUTHOR_SOURCE)
+DEFAULT_AUTHOR_LINK = f'search-{DEFAULT_AUTHOR_SOURCE}'
 
 
 def author_search_href(which, title=None, author=None):
@@ -91,14 +89,14 @@ def mi_to_html(
         mi,
         field_list=None, default_author_link=None, use_roman_numbers=True,
         rating_font='Liberation Serif', rtl=False, comments_heading_pos='hide',
-        for_qt=False,
+        for_qt=False, vertical_fields=()
     ):
     if field_list is None:
         field_list = get_field_list(mi)
     ans = []
     comment_fields = []
     isdevice = not hasattr(mi, 'id')
-    row = u'<td class="title">%s</td><td class="value">%s</td>'
+    row = '<td class="title">%s</td><td class="value">%s</td>'
     p = prepare_string_for_xml
     a = partial(prepare_string_for_xml, attribute=True)
     book_id = getattr(mi, 'id', 0)
@@ -110,6 +108,12 @@ def mi_to_html(
             continue
         if not metadata:
             continue
+
+        def value_list(sep, vals):
+            if field in vertical_fields:
+                return '<br/>'.join(vals)
+            return sep.join(vals)
+
         if field == 'sort':
             field = 'title_sort'
         if metadata['is_custom'] and metadata['datatype'] in {'bool', 'int', 'float'}:
@@ -141,14 +145,14 @@ def mi_to_html(
                     ans.append((field, row % (name, val)))
                 else:
                     if heading_position == 'above':
-                        val = '<h3 class="comments-heading">%s</h3>%s' % (p(name), val)
-                    comment_fields.append('<div id="%s" class="comments">%s</div>' % (field.replace('#', '_'), val))
+                        val = f'<h3 class="comments-heading">{p(name)}</h3>{val}'
+                    comment_fields.append('<div id="{}" class="comments">{}</div>'.format(field.replace('#', '_'), val))
         elif metadata['datatype'] == 'rating':
             val = getattr(mi, field)
             if val:
                 star_string = rating_to_stars(val, disp.get('allow_half_stars', False))
                 ans.append((field,
-                    u'<td class="title">%s</td><td class="rating value" '
+                    '<td class="title">%s</td><td class="rating value" '
                     'style=\'font-family:"%s"\'>%s</td>'%(
                         name, rating_font, star_string)))
         elif metadata['datatype'] == 'composite':
@@ -159,21 +163,21 @@ def mi_to_html(
                     ans.append((field, row % (name, comments_to_html(val))))
                 else:
                     if not metadata['is_multiple']:
-                        val = '<a href="%s" title="%s">%s</a>' % (
+                        val = '<a href="{}" title="{}">{}</a>'.format(
                               search_action(field, val),
                               _('Click to see books with {0}: {1}').format(metadata['name'], a(val)), p(val))
                     else:
                         all_vals = [v.strip()
-                            for v in val.split(metadata['is_multiple']['list_to_ui']) if v.strip()]
-                        links = ['<a href="%s" title="%s">%s</a>' % (
+                            for v in val.split(metadata['is_multiple']['cache_to_list']) if v.strip()]
+                        links = ['<a href="{}" title="{}">{}</a>'.format(
                             search_action(field, x), _('Click to see books with {0}: {1}').format(
                                      metadata['name'], a(x)), p(x)) for x in all_vals]
-                        val = metadata['is_multiple']['list_to_ui'].join(links)
+                        val = value_list(metadata['is_multiple']['list_to_ui'], links)
                     ans.append((field, row % (name, val)))
         elif field == 'path':
             if mi.path:
                 path = force_unicode(mi.path, filesystem_encoding)
-                scheme = u'devpath' if isdevice else u'path'
+                scheme = 'devpath' if isdevice else 'path'
                 loc = path if isdevice else book_id
                 pathstr = _('Click to open')
                 extra = ''
@@ -183,7 +187,7 @@ def mi_to_html(
                         durl = ':::'.join((durl.split(':::'))[2:])
                     extra = '<br><span style="font-size:smaller">%s</span>'%(
                             prepare_string_for_xml(durl))
-                link = '<a href="%s" title="%s">%s</a>%s' % (action(scheme, loc=loc),
+                link = '<a href="{}" title="{}">{}</a>{}'.format(action(scheme, loc=loc),
                         prepare_string_for_xml(path, True), pathstr, extra)
                 ans.append((field, row % (name, link)))
         elif field == 'formats':
@@ -201,15 +205,15 @@ def mi_to_html(
             } for x in mi.formats)
             fmts = ['<a title="{bpath}{sep}{fname}.{ext}" href="{action}">{fmt}</a>'.format(**x)
                     for x in data]
-            ans.append((field, row % (name, ', '.join(fmts))))
+            ans.append((field, row % (name, value_list(', ', fmts))))
         elif field == 'identifiers':
             urls = urls_from_identifiers(mi.identifiers, sort_results=True)
             links = [
-                '<a href="%s" title="%s:%s">%s</a>' % (
+                '<a href="{}" title="{}:{}">{}</a>'.format(
                     action('identifier', url=url, name=namel, id_type=id_typ, value=id_val, field='identifiers', book_id=book_id),
                     a(id_typ), a(id_val), p(namel))
                 for namel, id_typ, id_val, url in urls]
-            links = u', '.join(links)
+            links = value_list(', ', links)
             if links:
                 ans.append((field, row % (_('Ids')+':', links)))
         elif field == 'authors':
@@ -235,18 +239,18 @@ def mi_to_html(
                     authors.append('<a title="%s" href="%s">%s</a>'%(a(lt), action('author', url=link, name=aut, title=lt), aut))
                 else:
                     authors.append(aut)
-            ans.append((field, row % (name, ' & '.join(authors))))
+            ans.append((field, row % (name, value_list(' & ', authors))))
         elif field == 'languages':
             if not mi.languages:
                 continue
             names = filter(None, map(calibre_langcode_to_name, mi.languages))
-            names = ['<a href="%s" title="%s">%s</a>' % (search_action_with_data('languages', n, book_id), _(
+            names = ['<a href="{}" title="{}">{}</a>'.format(search_action_with_data('languages', n, book_id), _(
                 'Search calibre for books with the language: {}').format(n), n) for n in names]
-            ans.append((field, row % (name, u', '.join(names))))
+            ans.append((field, row % (name, value_list(', ', names))))
         elif field == 'publisher':
             if not mi.publisher:
                 continue
-            val = '<a href="%s" title="%s">%s</a>' % (
+            val = '<a href="{}" title="{}">{}</a>'.format(
                 search_action_with_data('publisher', mi.publisher, book_id),
                 _('Click to see books with {0}: {1}').format(metadata['name'], a(mi.publisher)),
                 p(mi.publisher))
@@ -259,7 +263,7 @@ def mi_to_html(
             val = mi.format_field(field)[-1]
             ans.append((field, row % (name, val)))
         else:
-            val = mi.format_field(field)[-1]
+            val = unescaped_val = mi.format_field(field)[-1]
             if val is None:
                 continue
             val = p(val)
@@ -282,6 +286,17 @@ def mi_to_html(
                 aval = getattr(mi, field)
                 if is_date_undefined(aval):
                     continue
+                aval = format_date(aval, 'yyyy-MM-dd')
+                key = field if field != 'timestamp' else 'date'
+                if val == aval:
+                    val = '<a href="{}" title="{}">{}</a>'.format(
+                        search_action_with_data(key, str(aval), book_id, None, original_value=val), a(
+                            _('Click to see books with {0}: {1}').format(metadata['name'] or field, val)), val)
+                else:
+                    val = '<a href="{}" title="{}">{}</a>'.format(
+                        search_action_with_data(key, str(aval), book_id, None, original_value=val), a(
+                            _('Click to see books with {0}: {1} (derived from {2})').format(
+                                metadata['name'] or field, aval, val)), val)
             elif metadata['datatype'] == 'text' and metadata['is_multiple']:
                 try:
                     st = metadata['search_terms'][0]
@@ -290,26 +305,47 @@ def mi_to_html(
                 all_vals = mi.get(field)
                 if not metadata.get('display', {}).get('is_names', False):
                     all_vals = sorted(all_vals, key=sort_key)
-                links = ['<a href="%s" title="%s">%s</a>' % (
+                links = ['<a href="{}" title="{}">{}</a>'.format(
                     search_action_with_data(st, x, book_id, field), _('Click to see books with {0}: {1}').format(
                         metadata['name'] or field, a(x)), p(x))
                          for x in all_vals]
-                val = metadata['is_multiple']['list_to_ui'].join(links)
+                val = value_list(metadata['is_multiple']['list_to_ui'], links)
             elif metadata['datatype'] == 'text' or metadata['datatype'] == 'enumeration':
                 # text/is_multiple handled above so no need to add the test to the if
                 try:
                     st = metadata['search_terms'][0]
                 except Exception:
                     st = field
-                val = '<a href="%s" title="%s">%s</a>' % (
-                    search_action_with_data(st, val, book_id, field), a(
-                        _('Click to see books with {0}: {1}').format(metadata['name'] or field, val)), p(val))
+                val = '<a href="{}" title="{}">{}</a>'.format(
+                    search_action_with_data(st, unescaped_val, book_id, field), a(
+                        _('Click to see books with {0}: {1}').format(metadata['name'] or field, val)), val)
+            elif metadata['datatype'] == 'bool':
+                val = '<a href="{}" title="{}">{}</a>'.format(
+                    search_action_with_data(field, val, book_id, None), a(
+                        _('Click to see books with {0}: {1}').format(metadata['name'] or field, val)), val)
+            else:
+                try:
+                    aval = str(getattr(mi, field))
+                    if not aval:
+                        continue
+                    if val == aval:
+                        val = '<a href="{}" title="{}">{}</a>'.format(
+                            search_action_with_data(field, str(aval), book_id, None, original_value=val), a(
+                                _('Click to see books with {0}: {1}').format(metadata['name'] or field, val)), val)
+                    else:
+                        val = '<a href="{}" title="{}">{}</a>'.format(
+                            search_action_with_data(field, str(aval), book_id, None, original_value=val), a(
+                                _('Click to see books with {0}: {1} (derived from {2})').format(
+                                    metadata['name'] or field, aval, val)), val)
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
 
             ans.append((field, row % (name, val)))
 
     dc = getattr(mi, 'device_collections', [])
     if dc:
-        dc = u', '.join(sorted(dc, key=sort_key))
+        dc = ', '.join(sorted(dc, key=sort_key))
         ans.append(('device_collections',
             row % (_('Collections')+':', dc)))
 
@@ -320,14 +356,14 @@ def mi_to_html(
             dt = 'text'
         return 'datatype_%s'%dt
 
-    ans = [u'<tr id="%s" class="%s">%s</tr>'%(fieldl.replace('#', '_'),
+    ans = ['<tr id="%s" class="%s">%s</tr>'%(fieldl.replace('#', '_'),
         classname(fieldl), html) for fieldl, html in ans]
     # print '\n'.join(ans)
     direction = 'rtl' if rtl else 'ltr'
-    rans = u'<style>table.fields td { vertical-align:top}</style><table class="fields" style="direction: %s; ' % direction
+    rans = '<style>table.fields td { vertical-align:top}</style><table class="fields" style="direction: %s; ' % direction
     if not for_qt:
         # This causes wasted space at the edge of the table in Qt's rich text
         # engine, see https://bugs.launchpad.net/calibre/+bug/1881488
         margin = 'left' if rtl else 'right'
-        rans += 'margin-{}: auto; '.format(margin)
+        rans += f'margin-{margin}: auto; '
     return '{}">{}</table>'.format(rans, '\n'.join(ans)), comment_fields

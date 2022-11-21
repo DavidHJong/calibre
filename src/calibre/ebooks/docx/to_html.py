@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -28,7 +27,7 @@ from calibre.ebooks.docx.fields import Fields
 from calibre.ebooks.docx.settings import Settings
 from calibre.ebooks.metadata.opf2 import OPFCreator
 from calibre.utils.localization import canonicalize_lang, lang_as_iso639_1
-from polyglot.builtins import iteritems, itervalues, filter, getcwd, map, unicode_type
+from polyglot.builtins import iteritems, itervalues
 
 
 NBSP = '\xa0'
@@ -57,7 +56,7 @@ def html_lang(docx_lang):
             return lang
 
 
-class Convert(object):
+class Convert:
 
     def __init__(self, path_or_stream, dest_dir=None, log=None, detect_cover=True, notes_text=None, notes_nopb=False, nosupsub=False):
         self.docx = DOCX(path_or_stream, log=log)
@@ -69,7 +68,7 @@ class Convert(object):
         self.notes_text = notes_text or _('Notes')
         self.notes_nopb = notes_nopb
         self.nosupsub = nosupsub
-        self.dest_dir = dest_dir or getcwd()
+        self.dest_dir = dest_dir or os.getcwd()
         self.mi = self.docx.metadata
         self.body = BODY()
         self.theme = Theme(self.namespace)
@@ -182,7 +181,8 @@ class Convert(object):
                         indent = float(style.text_indent[:-2]) + indent
                     style.text_indent = '%.3gpt' % indent
                     parent.text = tabs[-1].tail or ''
-                    list(map(parent.remove, tabs))
+                    for i in tabs:
+                        parent.remove(i)
 
         self.images.rid_map = orig_rid_map
 
@@ -311,7 +311,7 @@ class Convert(object):
                 seraw = self.docx.read(sename)
             except KeyError:
                 self.log.warn('Settings %s do not exist' % sename)
-            except EnvironmentError as e:
+            except OSError as e:
                 if e.errno != errno.ENOENT:
                     raise
                 self.log.warn('Settings %s file missing' % sename)
@@ -473,14 +473,14 @@ class Convert(object):
                     self.anchor_map[anchor] = current_anchor = generate_anchor(anchor, frozenset(itervalues(self.anchor_map)))
                     if old_anchor is not None:
                         # The previous anchor was not applied to any element
-                        for a, t in tuple(iteritems(self.anchor_map)):
+                        for a, t in tuple(self.anchor_map.items()):
                             if t == old_anchor:
                                 self.anchor_map[a] = current_anchor
             elif x.tag.endswith('}hyperlink'):
                 current_hyperlink = x
             elif x.tag.endswith('}instrText') and x.text and x.text.strip().startswith('TOC '):
                 old_anchor = current_anchor
-                anchor = unicode_type(uuid.uuid4())
+                anchor = str(uuid.uuid4())
                 self.anchor_map[anchor] = current_anchor = generate_anchor('toc', frozenset(itervalues(self.anchor_map)))
                 self.toc_anchor = current_anchor
                 if old_anchor is not None:
@@ -489,15 +489,25 @@ class Convert(object):
                         if t == old_anchor:
                             self.anchor_map[a] = current_anchor
         if current_anchor is not None:
-            # This paragraph had no <w:r> descendants
-            dest.set('id', current_anchor)
+            if dest.get('id'):
+                # this bookmark was at the end of the paragraph
+                if len(dest):
+                    if dest[-1].get('id'):
+                        self.anchor_map[current_anchor] = dest[-1].get('id')
+                    else:
+                        dest[-1].set('id', current_anchor)
+                else:
+                    self.anchor_map[current_anchor] = dest.get('id')
+            else:
+                # This paragraph had no <w:r> descendants
+                dest.set('id', current_anchor)
             current_anchor = None
 
         m = re.match(r'heading\s+(\d+)$', style.style_name or '', re.IGNORECASE)
         if m is not None:
             n = min(6, max(1, int(m.group(1))))
             dest.tag = 'h%d' % n
-            dest.set('data-heading-level', unicode_type(n))
+            dest.set('data-heading-level', str(n))
 
         if style.bidi is True:
             dest.set('dir', 'rtl')
@@ -832,7 +842,7 @@ if __name__ == '__main__':
     import shutil
     from calibre.utils.logging import default_log
     default_log.filter_level = default_log.DEBUG
-    dest_dir = os.path.join(getcwd(), 'docx_input')
+    dest_dir = os.path.join(os.getcwd(), 'docx_input')
     if os.path.exists(dest_dir):
         shutil.rmtree(dest_dir)
     os.mkdir(dest_dir)

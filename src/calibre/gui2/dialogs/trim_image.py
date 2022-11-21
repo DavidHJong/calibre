@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -8,7 +7,7 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 import os
 import sys
 from qt.core import (
-    QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QIcon, QKeySequence,
+    QDialog, QDialogButtonBox, QHBoxLayout, QIcon, QKeySequence,
     QLabel, QSize, Qt, QToolBar, QVBoxLayout
 )
 
@@ -40,9 +39,9 @@ class TrimImage(QDialog):
         u.setShortcut(QKeySequence(QKeySequence.StandardKey.Undo))
         self.redo_action = r = c.redo_action
         r.setShortcut(QKeySequence(QKeySequence.StandardKey.Redo))
-        self.trim_action = ac = self.bar.addAction(QIcon(I('trim.png')), _('&Trim'), self.do_trim)
+        self.trim_action = ac = self.bar.addAction(QIcon.ic('trim.png'), _('&Trim'), self.do_trim)
         ac.setShortcut(QKeySequence('Ctrl+T'))
-        ac.setToolTip('%s [%s]' % (_('Trim image by removing borders outside the selected region'),
+        ac.setToolTip('{} [{}]'.format(_('Trim image by removing borders outside the selected region'),
                                    ac.shortcut().toString(QKeySequence.SequenceFormat.NativeText)))
         ac.setEnabled(False)
         c.selection_state_changed.connect(self.selection_changed)
@@ -67,12 +66,12 @@ class TrimImage(QDialog):
         h.addStretch(10)
         h.addWidget(bb)
 
-        self.resize(QSize(900, 600))
-        geom = gprefs.get('image-trim-dialog-geometry', None)
-        if geom is not None:
-            QApplication.instance().safe_restore_geometry(self, geom)
+        self.restore_geometry(gprefs, 'image-trim-dialog-geometry')
         self.setWindowIcon(self.trim_action.icon())
         self.image_data = None
+
+    def sizeHint(self):
+        return QSize(900, 600)
 
     def do_trim(self):
         self.canvas.trim_image()
@@ -84,10 +83,9 @@ class TrimImage(QDialog):
 
     def selection_area_changed(self, rect):
         if rect:
-            w = rect.width()
-            h = rect.height()
+            x, y, w, h = map(int, self.canvas.rect_for_trim())
             text = f'{int(w)}x{int(h)}'
-            text = _('Size: {0}px Aspect ratio: {1:.2g}').format(text, w / h)
+            text = _('Size: {0}px Aspect ratio: {1:.3g}').format(text, w / h)
         else:
             text = ''
         self.tr_sz.setText(text)
@@ -97,7 +95,7 @@ class TrimImage(QDialog):
 
     def cleanup(self):
         self.canvas.break_cycles()
-        gprefs.set('image-trim-dialog-geometry', bytearray(self.saveGeometry()))
+        self.save_geometry(gprefs, 'image-trim-dialog-geometry')
 
     def accept(self):
         if self.trim_action.isEnabled():
@@ -119,7 +117,7 @@ if __name__ == '__main__':
     with open(fname, 'rb') as f:
         data = f.read()
     d = TrimImage(data)
-    if d.exec_() == QDialog.DialogCode.Accepted and d.image_data is not None:
+    if d.exec() == QDialog.DialogCode.Accepted and d.image_data is not None:
         b, ext = os.path.splitext(fname)
         fname = b + '-trimmed' + ext
         with open(fname, 'wb') as f:

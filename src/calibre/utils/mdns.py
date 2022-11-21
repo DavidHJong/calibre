@@ -84,7 +84,7 @@ def verify_ipV4_address(ip_address):
             socket.inet_aton(ip_address)
             if len(ip_address.split('.')) == 4:
                 result = ip_address
-        except (socket.error, OSError):
+        except OSError:
             # Not legal ip address
             pass
     return result
@@ -179,8 +179,9 @@ def unpublish(desc, service_type, port, properties=None, add_hostname=True, wait
     '''
     server = start_server()
     service = create_service(desc, service_type, port, properties, add_hostname)
+    num_services = len(server.registry.async_get_service_infos())
     server.unregister_service(service)
-    if len(server.services) == 0:
+    if num_services < 2:
         stop_server(wait_for_stop=wait_for_stop)
 
 

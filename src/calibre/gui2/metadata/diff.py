@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -27,7 +26,7 @@ from calibre.gui2.metadata.basic_widgets import PubdateEdit, RatingEdit
 from calibre.gui2.widgets2 import RightClickButton
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.date import UNDEFINED_DATE
-from polyglot.builtins import iteritems, itervalues, map, range, unicode_type, zip
+from polyglot.builtins import iteritems, itervalues
 
 Widgets = namedtuple('Widgets', 'new old label button')
 
@@ -52,7 +51,7 @@ class LineEdit(EditWithComplete):
 
     @property
     def value(self):
-        val = unicode_type(self.text()).strip()
+        val = str(self.text()).strip()
         ism = self.metadata['is_multiple']
         if ism:
             if not val:
@@ -87,7 +86,7 @@ class LineEdit(EditWithComplete):
 
     @property
     def current_val(self):
-        return unicode_type(self.text())
+        return str(self.text())
 
     @current_val.setter
     def current_val(self, val):
@@ -216,12 +215,12 @@ class SeriesEdit(LineEdit):
         series_index = mi.get(self.field + '_index', default=1.0)
         val = ''
         if series:
-            val = '%s [%s]' % (series, mi.format_series_index(series_index))
+            val = f'{series} [{mi.format_series_index(series_index)}]'
         self.setText(val)
         self.setCursorPosition(0)
 
     def to_mi(self, mi):
-        val = unicode_type(self.text()).strip()
+        val = str(self.text()).strip()
         try:
             series_index = float(val.rpartition('[')[-1].rstrip(']').strip())
         except:
@@ -257,7 +256,7 @@ class IdentifiersEdit(LineEdit):
 
     @as_dict.setter
     def as_dict(self, val):
-        val = ('%s:%s' % (k, v) for k, v in iteritems(val))
+        val = (f'{k}:{v}' for k, v in iteritems(val))
         self.setText(', '.join(val))
         self.setCursorPosition(0)
 
@@ -319,8 +318,9 @@ class CoverView(QWidget):
         self.field = field
         self.metadata = metadata
         self.pixmap = None
-        self.blank = QPixmap(I('blank.png'))
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.PolicyFlag.GrowFlag|QSizePolicy.PolicyFlag.ExpandFlag)
+        ic = QIcon.ic('blank.png')
+        self.blank = ic.pixmap(ic.availableSizes()[0])
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         self.sizePolicy().setHeightForWidth(True)
 
     def mouseDoubleClickEvent(self, ev):
@@ -392,7 +392,7 @@ class CoverView(QWidget):
             f = p.font()
             f.setBold(True)
             p.setFont(f)
-            sz = u'\u00a0%d x %d\u00a0'%(self.pixmap.width(), self.pixmap.height())
+            sz = '\u00a0%d x %d\u00a0'%(self.pixmap.width(), self.pixmap.height())
             flags = int(Qt.AlignmentFlag.AlignBottom|Qt.AlignmentFlag.AlignRight|Qt.TextFlag.TextSingleLine)
             szrect = p.boundingRect(sztgt, flags, sz)
             p.fillRect(szrect.adjusted(0, 0, 0, 4), QColor(0, 0, 0, 200))
@@ -461,7 +461,7 @@ class CompareSingle(QWidget):
             newl = QLabel('&%s:' % m['name'])
             newl.setBuddy(neww)
             button = RightClickButton(self)
-            button.setIcon(QIcon(I('back.png')))
+            button.setIcon(QIcon.ic('back.png'))
             button.setObjectName(field)
             connect_lambda(button.clicked, self, lambda self: self.revert(self.sender().objectName()))
             button.setToolTip(revert_tooltip % m['name'])
@@ -472,7 +472,7 @@ class CompareSingle(QWidget):
                 m.addAction(button.toolTip()).triggered.connect(button.click)
                 m.actions()[0].setIcon(button.icon())
                 m.addAction(_('Merge identifiers')).triggered.connect(self.merge_identifiers)
-                m.actions()[1].setIcon(QIcon(I('merge.png')))
+                m.actions()[1].setIcon(QIcon.ic('merge.png'))
             elif field == 'tags':
                 button.m = m = QMenu(button)
                 button.setMenu(m)
@@ -480,7 +480,7 @@ class CompareSingle(QWidget):
                 m.addAction(button.toolTip()).triggered.connect(button.click)
                 m.actions()[0].setIcon(button.icon())
                 m.addAction(_('Merge tags')).triggered.connect(self.merge_tags)
-                m.actions()[1].setIcon(QIcon(I('merge.png')))
+                m.actions()[1].setIcon(QIcon.ic('merge.png'))
 
             if cls is CoverView:
                 neww.zoom_requested.connect(self.zoom_requested)
@@ -548,6 +548,13 @@ class CompareSingle(QWidget):
             if val != self.initial_vals[field]:
                 widgets.new.to_mi(self.current_mi)
                 changed = True
+        if changed and not self.current_mi.languages:
+            # this is needed because blank language setting
+            # causes current UI language to be set
+            widgets = self.widgets['languages']
+            neww, oldw = widgets[:2]
+            if oldw.current_val:
+                self.current_mi.languages = oldw.current_val
         return changed
 
 
@@ -607,7 +614,7 @@ class CompareMany(QDialog):
         self.l = l = QVBoxLayout(w)
         s.addWidget(w)
         self.next_called = False
-        self.setWindowIcon(QIcon(I('auto_author_sort.png')))
+        self.setWindowIcon(QIcon.ic('auto_author_sort.png'))
         self.get_metadata = get_metadata
         self.ids = list(ids)
         self.total = len(self.ids)
@@ -635,33 +642,38 @@ class CompareMany(QDialog):
         bb.rejected.connect(self.reject)
         if self.total > 1:
             self.aarb = b = bb.addButton(_('&Accept all remaining'), QDialogButtonBox.ButtonRole.YesRole)
-            b.setIcon(QIcon(I('ok.png'))), b.setAutoDefault(False)
+            b.setIcon(QIcon.ic('ok.png')), b.setAutoDefault(False)
             if accept_all_tooltip:
                 b.setToolTip(accept_all_tooltip)
             b.clicked.connect(self.accept_all_remaining)
             self.rarb = b = bb.addButton(_('Re&ject all remaining'), QDialogButtonBox.ButtonRole.ActionRole)
-            b.setIcon(QIcon(I('minus.png'))), b.setAutoDefault(False)
+            b.setIcon(QIcon.ic('minus.png')), b.setAutoDefault(False)
             if reject_all_tooltip:
                 b.setToolTip(reject_all_tooltip)
             b.clicked.connect(self.reject_all_remaining)
             self.sb = b = bb.addButton(_('R&eject'), QDialogButtonBox.ButtonRole.ActionRole)
+            ac = QAction(self)
+            ac.setShortcut(QKeySequence(Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier | Qt.Key.Key_Right))
+            ac.triggered.connect(b.click)
+            self.addAction(ac)
+            b.setToolTip(_('Reject changes and move to next [{}]').format(ac.shortcut().toString(QKeySequence.SequenceFormat.NativeText)))
             connect_lambda(b.clicked, self, lambda self: self.next_item(False))
-            b.setIcon(QIcon(I('minus.png'))), b.setAutoDefault(False)
+            b.setIcon(QIcon.ic('minus.png')), b.setAutoDefault(False)
             if reject_button_tooltip:
                 b.setToolTip(reject_button_tooltip)
             self.next_action = ac = QAction(self)
-            ac.setShortcut(QKeySequence(Qt.Modifier.ALT | Qt.Key.Key_Right))
+            ac.setShortcut(QKeySequence(Qt.KeyboardModifier.AltModifier | Qt.Key.Key_Right))
             self.addAction(ac)
         if action_button is not None:
             self.acb = b = bb.addButton(action_button[0], QDialogButtonBox.ButtonRole.ActionRole)
-            b.setIcon(QIcon(action_button[1]))
+            b.setIcon(QIcon.ic(action_button[1]))
             self.action_button_action = action_button[2]
             b.clicked.connect(self.action_button_clicked)
         self.nb = b = bb.addButton(_('&Next') if self.total > 1 else _('&OK'), QDialogButtonBox.ButtonRole.ActionRole)
         if self.total > 1:
             b.setToolTip(_('Move to next [%s]') % self.next_action.shortcut().toString(QKeySequence.SequenceFormat.NativeText))
             self.next_action.triggered.connect(b.click)
-        b.setIcon(QIcon(I('forward.png' if self.total > 1 else 'ok.png')))
+        b.setIcon(QIcon.ic('forward.png' if self.total > 1 else 'ok.png'))
         connect_lambda(b.clicked, self, lambda self: self.next_item(True))
         b.setDefault(True), b.setAutoDefault(True)
         self.bbh = h = QHBoxLayout()
@@ -675,14 +687,11 @@ class CompareMany(QDialog):
 
         self.next_item(True)
 
-        desktop = QApplication.instance().desktop()
-        geom = desktop.availableGeometry(parent or self)
+        geom = (parent or self).screen().availableSize()
         width = max(700, min(950, geom.width()-50))
         height = max(650, min(1000, geom.height()-100))
         self.resize(QSize(width, height))
-        geom = gprefs.get('diff_dialog_geom', None)
-        if geom is not None:
-            QApplication.instance().safe_restore_geometry(self, geom)
+        self.restore_geometry(gprefs, 'diff_dialog_geom')
         b.setFocus(Qt.FocusReason.OtherFocusReason)
         self.next_called = False
 
@@ -698,9 +707,9 @@ class CompareMany(QDialog):
         self.action_button_action(self.ids[0])
 
     def accept(self):
-        gprefs.set('diff_dialog_geom', bytearray(self.saveGeometry()))
+        self.save_geometry(gprefs, 'diff_dialog_geom')
         self.compare_widget.save_comments_controls_state()
-        super(CompareMany, self).accept()
+        super().accept()
 
     def reject(self):
         if self.stack.currentIndex() == 1:
@@ -710,9 +719,9 @@ class CompareMany(QDialog):
             'All reviewed changes will be lost! Are you sure you want to Cancel?'),
             'confirm-metadata-diff-dialog-cancel'):
             return
-        gprefs.set('diff_dialog_geom', bytearray(self.saveGeometry()))
+        self.save_geometry(gprefs, 'diff_dialog_geom')
         self.compare_widget.save_comments_controls_state()
-        super(CompareMany, self).reject()
+        super().reject()
 
     @property
     def current_mi(self):
@@ -776,7 +785,7 @@ if __name__ == '__main__':
     gm = partial(db.get_metadata, index_is_id=True, get_cover=True, cover_as_data=True)
     get_metadata = lambda x:list(map(gm, ids[x]))
     d = CompareMany(list(range(len(ids))), get_metadata, db.field_metadata, db=db)
-    if d.exec_() == QDialog.DialogCode.Accepted:
-        for changed, mi in itervalues(d.accepted):
-            if changed and mi is not None:
-                print(mi)
+    d.exec()
+    for changed, mi in itervalues(d.accepted):
+        if changed and mi is not None:
+            print(mi)

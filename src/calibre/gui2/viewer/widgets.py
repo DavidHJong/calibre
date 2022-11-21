@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2020, Kovid Goyal <kovid at kovidgoyal.net>
 
 import re
@@ -112,6 +111,7 @@ class ResultsDelegate(QStyledItemDelegate):  # {{{
 class SearchBox(HistoryComboBox):  # {{{
 
     history_saved = pyqtSignal(object, object)
+    history_cleared = pyqtSignal()
     cleared = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -127,9 +127,13 @@ class SearchBox(HistoryComboBox):  # {{{
         self.history_saved.emit(self.text(), self.history)
         return ret
 
+    def clear_history(self):
+        super().clear_history()
+        self.history_cleared.emit()
+
     def contextMenuEvent(self, event):
         menu = self.lineEdit().createStandardContextMenu()
         menu.addSeparator()
         menu.addAction(_('Clear search history'), self.clear_history)
-        menu.exec_(event.globalPos())
+        menu.exec(event.globalPos())
 # }}}

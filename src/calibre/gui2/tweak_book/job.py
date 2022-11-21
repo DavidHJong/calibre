@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -62,7 +61,7 @@ class BlockingJob(QWidget):
     def start(self):
         self.setGeometry(0, 0, self.parent().width(), self.parent().height())
         self.setVisible(True)
-        # Prevent any actions from being triggerred by key presses
+        # Prevent any actions from being triggered by key presses
         self.parent().setEnabled(False)
         self.raise_()
         self.setFocus(Qt.FocusReason.OtherFocusReason)

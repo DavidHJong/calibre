@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -23,7 +22,7 @@ from calibre.ebooks.metadata.toc import TOC
 from calibre.ebooks.mobi.utils import read_font_record
 from calibre.ebooks.oeb.parse_utils import parse_html
 from calibre.ebooks.oeb.base import XPath, XHTML, xml2text
-from polyglot.builtins import range, zip, unicode_type, getcwd, as_unicode
+from polyglot.builtins import as_unicode
 from polyglot.urllib import urldefrag
 
 Part = namedtuple('Part',
@@ -71,7 +70,7 @@ def get_first_resource_index(first_image_index, num_of_text_records, first_text_
     return first_resource_index
 
 
-class Mobi8Reader(object):
+class Mobi8Reader:
 
     def __init__(self, mobi6_reader, log, for_tweak=False):
         self.for_tweak = for_tweak
@@ -225,7 +224,7 @@ class Mobi8Reader(object):
             self.parts.append(skeleton)
             if divcnt < 1:
                 # Empty file
-                aidtext = unicode_type(uuid4())
+                aidtext = str(uuid4())
                 filename = aidtext + '.html'
             self.partinfo.append(Part(skelnum, 'text', filename, skelpos,
                 baseptr, aidtext))
@@ -261,13 +260,14 @@ class Mobi8Reader(object):
                 # svg
                 typ = 'svg'
                 start = m.start()
-                m2 = image_tag_pattern.search(flowpart)
+                # strip off anything before <svg if inlining
+                from_svg = flowpart[start:]
+                m2 = image_tag_pattern.search(from_svg)
                 if m2 is not None:
                     format = 'inline'
                     dir = None
                     fname = None
-                    # strip off anything before <svg if inlining
-                    flowpart = re.sub(br'(</?)svg:', r'\1', flowpart[start:])
+                    flowpart = from_svg
                 else:
                     format = 'file'
                     dir = "images"
@@ -357,7 +357,7 @@ class Mobi8Reader(object):
                 if isinstance(idtext, bytes):
                     idtext = idtext.decode(self.header.codec)
                 linktgt += '#' + idtext
-            g = Guide.Reference(linktgt, getcwd())
+            g = Guide.Reference(linktgt, os.getcwd())
             g.title, g.type = ref_title, ref_type
             if g.title == 'start' or g.type == 'text':
                 has_start = True
@@ -371,7 +371,7 @@ class Mobi8Reader(object):
                 linktgt = fi.filename
                 if idtext:
                     linktgt += '#' + idtext
-                g = Guide.Reference('%s/%s'%(fi.type, linktgt), getcwd())
+                g = Guide.Reference('%s/%s'%(fi.type, linktgt), os.getcwd())
                 g.title, g.type = 'start', 'text'
                 guide.append(g)
 
@@ -485,7 +485,7 @@ class Mobi8Reader(object):
                         except:
                             self.log.exception('Failed to read inline ToC')
 
-        opf = OPFCreator(getcwd(), mi)
+        opf = OPFCreator(os.getcwd(), mi)
         opf.guide = guide
 
         def exclude(path):
@@ -505,10 +505,17 @@ class Mobi8Reader(object):
             except:
                 pass
 
-        opf.create_manifest_from_files_in([getcwd()], exclude=exclude)
+        opf.create_manifest_from_files_in([os.getcwd()], exclude=exclude)
+        mime_map = {
+            'text/html': 'application/xhtml+xml',
+            'font/ttf': 'application/x-font-truetype',
+            'font/otf': 'application/vnd.ms-opentype',
+            'font/woff': 'application/font-woff',
+        }
         for entry in opf.manifest:
-            if entry.mime_type == 'text/html':
-                entry.mime_type = 'application/xhtml+xml'
+            n = mime_map.get(entry.mime_type)
+            if n is not None:
+                entry.mime_type = n
         opf.create_spine(spine)
         opf.set_toc(toc)
         ppd = getattr(self.header.exth, 'page_progression_direction', None)
@@ -567,7 +574,7 @@ class Mobi8Reader(object):
             elif elem is start:
                 reached = True
 
-        depths = sorted(set(x[-1] for x in links))
+        depths = sorted({x[-1] for x in links})
         depth_map = {x:i for i, x in enumerate(depths)}
         for text, href, frag, depth in links:
             depth = depth_map[depth]

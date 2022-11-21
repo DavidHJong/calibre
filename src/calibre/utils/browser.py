@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 # License: GPLv3 Copyright: 2010, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -106,10 +105,10 @@ class Browser(B):
         self._clone_actions['set_handle_equiv'] = ('set_handle_equiv',
                 args, kwargs)
 
-    def set_handle_gzip(self, handle):
-        B._set_handler(self, '_gzip', handle)
+    def set_handle_gzip(self, *args, **kwargs):
+        B.set_handle_gzip(self, *args, **kwargs)
         self._clone_actions['set_handle_gzip'] = ('set_handle_gzip',
-                (handle,), {})
+                args, kwargs)
 
     def set_debug_redirects(self, *args, **kwargs):
         B.set_debug_redirects(self, *args, **kwargs)

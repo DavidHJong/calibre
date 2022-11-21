@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -8,7 +7,7 @@ __copyright__ = '2015, Kovid Goyal <kovid at kovidgoyal.net>'
 import os, errno
 from io import BytesIO
 from threading import Lock
-from polyglot.builtins import map, unicode_type
+from contextlib import suppress
 from functools import partial
 
 from calibre import fit_image, sanitize_file_name
@@ -37,23 +36,20 @@ lock = Lock()
 
 # Get book formats/cover as a cached filesystem file {{{
 
-# We cannot store mtimes in the filesystem since some operating systems (OS X)
-# have only one second precision for mtimes
-mtimes = {}
 rename_counter = 0
 
 
 def reset_caches():
-    mtimes.clear()
+    pass
 
 
 def open_for_write(fname):
     try:
         return share_open(fname, 'w+b')
-    except EnvironmentError:
+    except OSError:
         try:
             os.makedirs(os.path.dirname(fname))
-        except EnvironmentError:
+        except OSError:
             pass
     return share_open(fname, 'w+b')
 
@@ -71,15 +67,20 @@ def create_file_copy(ctx, rd, prefix, library_id, book_id, ext, mtime, copy_func
     if iswindows:
         base = '\\\\?\\' + os.path.abspath(base)  # Ensure fname is not too long for windows' API
 
-    bname = '%s-%s-%x.%s' % (prefix, library_id, book_id, ext)
+    bname = f'{prefix}-{library_id}-{book_id:x}.{ext}'
     if '\\' in bname or '/' in bname:
         raise ValueError('File components must not contain path separators')
     fname = os.path.join(base, bname)
     used_cache = 'no'
 
+    def safe_mtime():
+        with suppress(OSError):
+            return os.path.getmtime(fname)
+
+    mt = mtime if isinstance(mtime, (int, float)) else timestampfromdt(mtime)
     with lock:
-        previous_mtime = mtimes.get(bname)
-        if previous_mtime is None or previous_mtime < mtime:
+        previous_mtime = safe_mtime()
+        if previous_mtime is None or previous_mtime < mt:
             if previous_mtime is not None:
                 # File exists and may be open, so we cannot change its
                 # contents, as that would lead to corrupted downloads in any
@@ -94,24 +95,22 @@ def create_file_copy(ctx, rd, prefix, library_id, book_id, ext, mtime, copy_func
                 else:
                     os.remove(fname)
             ans = open_for_write(fname)
-            mtimes[bname] = mtime
             copy_func(ans)
             ans.seek(0)
         else:
             try:
                 ans = share_open(fname, 'rb')
                 used_cache = 'yes'
-            except EnvironmentError as err:
+            except OSError as err:
                 if err.errno != errno.ENOENT:
                     raise
                 ans = open_for_write(fname)
-                mtimes[bname] = mtime
                 copy_func(ans)
                 ans.seek(0)
         if ctx.testing:
             rd.outheaders['Used-Cache'] = used_cache
             rd.outheaders['Tempfile'] = as_hex_unicode(fname)
-        return rd.filesystem_file_with_custom_etag(ans, prefix, library_id, book_id, mtime, extra_etag_data)
+        return rd.filesystem_file_with_custom_etag(ans, prefix, library_id, book_id, mt, extra_etag_data)
 
 
 def write_generated_cover(db, book_id, width, height, destf):
@@ -130,7 +129,7 @@ def write_generated_cover(db, book_id, width, height, destf):
 def generated_cover(ctx, rd, library_id, db, book_id, width=None, height=None):
     prefix = 'generated-cover'
     if height is not None:
-        prefix += '-%sx%s' % (width, height)
+        prefix += f'-{width}x{height}'
 
     mtime = timestampfromdt(db.field_for('last_modified', book_id))
     return create_file_copy(ctx, rd, prefix, library_id, book_id, 'jpg', mtime, partial(write_generated_cover, db, book_id, width, height))
@@ -145,7 +144,7 @@ def cover(ctx, rd, library_id, db, book_id, width=None, height=None):
         def copy_func(dest):
             db.copy_cover_to(book_id, dest)
     else:
-        prefix += '-%sx%s' % (width, height)
+        prefix += f'-{width}x{height}'
 
         def copy_func(dest):
             buf = BytesIO()
@@ -160,11 +159,11 @@ def book_filename(rd, book_id, mi, fmt, as_encoded_unicode=False):
     au = authors_to_string(mi.authors or [_('Unknown')])
     title = mi.title or _('Unknown')
     ext = (fmt or '').lower()
-    fname = '%s - %s_%s.%s' % (title[:30], au[:30], book_id, ext)
+    fname = f'{title[:30]} - {au[:30]}_{book_id}.{ext}'
     if as_encoded_unicode:
         # See https://tools.ietf.org/html/rfc6266
         fname = sanitize_file_name(fname).encode('utf-8')
-        fname = unicode_type(quote(fname))
+        fname = str(quote(fname))
     else:
         fname = ascii_filename(fname).replace('"', '_')
     if ext == 'kepub' and 'Kobo Touch' in rd.inheaders.get('User-Agent', ''):
@@ -207,8 +206,9 @@ def book_fmt(ctx, rd, library_id, db, book_id, fmt):
             set_metadata(dest, mi, fmt)
             dest.seek(0)
 
-    rd.outheaders['Content-Disposition'] = '''attachment; filename="%s"; filename*=utf-8''%s''' % (
-        book_filename(rd, book_id, mi, fmt), book_filename(rd, book_id, mi, fmt, as_encoded_unicode=True))
+    cd = rd.query.get('content_disposition', 'attachment')
+    rd.outheaders['Content-Disposition'] = '''{}; filename="{}"; filename*=utf-8''{}'''.format(
+        cd, book_filename(rd, book_id, mi, fmt), book_filename(rd, book_id, mi, fmt, as_encoded_unicode=True))
 
     return create_file_copy(ctx, rd, 'fmt', library_id, book_id, fmt, mtime, copy_func, extra_etag_data=extra_etag_data)
 # }}}
@@ -226,7 +226,7 @@ def static(ctx, rd, what):
     path = P('content-server/' + path)
     try:
         return share_open(path, 'rb')
-    except EnvironmentError:
+    except OSError:
         raise HTTPNotFound()
 
 
@@ -265,17 +265,17 @@ def icon(ctx, rd, which):
     if sz == 'full':
         try:
             return share_open(path, 'rb')
-        except EnvironmentError:
+        except OSError:
             raise HTTPNotFound()
     with lock:
         cached = os.path.join(rd.tdir, 'icons', '%d-%s.png' % (sz, which))
         try:
             return share_open(cached, 'rb')
-        except EnvironmentError:
+        except OSError:
             pass
         try:
             src = share_open(path, 'rb')
-        except EnvironmentError:
+        except OSError:
             raise HTTPNotFound()
         with src:
             idata = src.read()
@@ -341,4 +341,4 @@ def get(ctx, rd, what, book_id, library_id):
             try:
                 return book_fmt(ctx, rd, library_id, db, book_id, what.lower())
             except NoSuchFormat:
-                raise HTTPNotFound('No %s format for the book %r' % (what.lower(), book_id))
+                raise HTTPNotFound(f'No {what.lower()} format for the book {book_id!r}')

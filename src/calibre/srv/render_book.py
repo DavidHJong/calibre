@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -27,7 +26,6 @@ from calibre.ebooks.oeb.polish.container import Container as ContainerBase
 from calibre.ebooks.oeb.polish.cover import (
     find_cover_image, find_cover_image_in_page, find_cover_page
 )
-from calibre.ebooks.oeb.polish.pretty import pretty_script_or_style
 from calibre.ebooks.oeb.polish.toc import from_xpaths, get_landmarks, get_toc
 from calibre.ebooks.oeb.polish.utils import guess_type
 from calibre.ptempfile import PersistentTemporaryDirectory
@@ -47,7 +45,7 @@ from polyglot.binary import (
     as_base64_unicode as encode_component, from_base64_bytes,
     from_base64_unicode as decode_component
 )
-from polyglot.builtins import as_bytes, iteritems, map, unicode_type
+from polyglot.builtins import as_bytes, iteritems
 from polyglot.urllib import quote, urlparse
 
 RENDER_VERSION = 1
@@ -108,7 +106,7 @@ def create_link_replacer(container, link_uid, changed):
                 frag = urlunquote(frag)
                 url = resource_template.format(encode_url(name, frag))
             else:
-                if isinstance(name, unicode_type):
+                if isinstance(name, str):
                     name = name.encode('utf-8')
                 url = 'missing:' + force_unicode(quote(name), 'utf-8')
             changed.add(base)
@@ -194,7 +192,8 @@ def toc_anchor_map(toc):
         if name and node['id'] not in seen_map[name]:
             ans[name].append({'id':node['id'], 'frag':node['frag']})
             seen_map[name].add(node['id'])
-        tuple(map(process_node, node['children']))
+        for i in node['children']:
+            process_node(i)
 
     process_node(toc)
     return dict(ans)
@@ -334,7 +333,6 @@ def transform_inline_styles(container, name, transform_sheet, transform_style):
             if nraw != style.text:
                 changed = True
                 style.text = nraw
-                pretty_script_or_style(container, style)
     for elem in root.xpath('//*[@style]'):
         text = elem.get('style', None)
         if text:
@@ -412,14 +410,14 @@ def transform_html(container, name, virtualize_resources, link_uid, link_to_map,
         f.write(shtml)
 
 
-class RenderManager(object):
+class RenderManager:
 
     def __init__(self, max_workers):
         self.max_workers = max_workers
 
     def launch_worker(self):
-        with lopen(os.path.join(self.tdir, '{}.json'.format(len(self.workers))), 'wb') as output:
-            error = lopen(os.path.join(self.tdir, '{}.error'.format(len(self.workers))), 'wb')
+        with lopen(os.path.join(self.tdir, f'{len(self.workers)}.json'), 'wb') as output:
+            error = lopen(os.path.join(self.tdir, f'{len(self.workers)}.error'), 'wb')
             p = start_pipe_worker('from calibre.srv.render_book import worker_main; worker_main()', stdout=error, stderr=error)
             p.output_path = output.name
             p.error_path = error.name
@@ -443,11 +441,11 @@ class RenderManager(object):
         del self.workers
         try:
             rmtree(self.tdir)
-        except EnvironmentError:
+        except OSError:
             time.sleep(0.1)
             try:
                 rmtree(self.tdir)
-            except EnvironmentError:
+            except OSError:
                 pass
         del self.tdir
 
@@ -764,13 +762,12 @@ def get_stored_annotations(container, bookmark_data):
         return
     if raw.startswith(EPUB_FILE_TYPE_MAGIC):
         raw = raw[len(EPUB_FILE_TYPE_MAGIC):].replace(b'\n', b'')
-        for annot in json_loads(from_base64_bytes(raw)):
-            yield annot
+        yield from json_loads(from_base64_bytes(raw))
         return
 
     from calibre.ebooks.oeb.iterator.bookmarks import parse_bookmarks
     for bm in parse_bookmarks(raw):
-        if bm['type'] == 'cfi' and isinstance(bm['pos'], unicode_type):
+        if bm['type'] == 'cfi' and isinstance(bm['pos'], str):
             spine_index = (1 + bm['spine']) * 2
             epubcfi = 'epubcfi(/{}/{})'.format(spine_index, bm['pos'].lstrip('/'))
             title = bm.get('title')
@@ -824,7 +821,7 @@ def viewer_main():
     render_for_viewer(*args)
 
 
-class Profiler(object):
+class Profiler:
 
     def __init__(self):
         try:

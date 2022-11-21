@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -7,6 +6,8 @@ __copyright__ = '2012, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import os
+from PIL import Image, ImageOps
+from io import BytesIO
 
 from calibre.ebooks.mobi import MAX_THUMB_DIMEN, MAX_THUMB_SIZE
 from calibre.ebooks.mobi.utils import (rescale_image, mobify_image,
@@ -15,12 +16,28 @@ from calibre.ebooks import generate_masthead
 from calibre.ebooks.oeb.base import OEB_RASTER_IMAGES
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.imghdr import what
-from polyglot.builtins import iteritems, unicode_type
+from polyglot.builtins import iteritems
 
 PLACEHOLDER_GIF = b'GIF89a\x01\x00\x01\x00\xf0\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00!\xfe calibre-placeholder-gif-for-azw3\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'  # noqa
 
 
-class Resources(object):
+def process_jpegs_for_amazon(data: bytes) -> bytes:
+    img = Image.open(BytesIO(data))
+    if img.format == 'JPEG':
+        # Amazon's MOBI renderer can't render JPEG images without JFIF metadata
+        # and images with EXIF data dont get displayed on the cover screen
+        changed = not img.info
+        if hasattr(img, '_getexif') and img._getexif():
+            changed = True
+            img = ImageOps.exif_transpose(img)
+        if changed:
+            out = BytesIO()
+            img.save(out, 'JPEG')
+            data = out.getvalue()
+    return data
+
+
+class Resources:
 
     def __init__(self, oeb, opts, is_periodical, add_fonts=False,
             process_images=True):
@@ -41,10 +58,10 @@ class Resources(object):
 
     def process_image(self, data):
         if not self.process_images:
-            return data
+            return process_jpegs_for_amazon(data)
         func = mobify_image if self.opts.mobi_keep_original_images else rescale_image
         try:
-            return func(data)
+            return process_jpegs_for_amazon(func(data))
         except Exception:
             if 'png' != what(None, data):
                 raise
@@ -72,7 +89,7 @@ class Resources(object):
             self.image_indices.add(0)
         elif self.is_periodical:
             # Generate a default masthead
-            data = generate_masthead(unicode_type(self.oeb.metadata['title'][0]))
+            data = generate_masthead(str(self.oeb.metadata['title'][0]))
             self.records.append(data)
             self.used_image_indices.add(0)
             self.image_indices.add(0)
@@ -80,8 +97,8 @@ class Resources(object):
 
         cover_href = self.cover_offset = self.thumbnail_offset = None
         if (oeb.metadata.cover and
-                unicode_type(oeb.metadata.cover[0]) in oeb.manifest.ids):
-            cover_id = unicode_type(oeb.metadata.cover[0])
+                str(oeb.metadata.cover[0]) in oeb.manifest.ids):
+            cover_id = str(oeb.metadata.cover[0])
             item = oeb.manifest.ids[cover_id]
             cover_href = item.href
 
@@ -92,7 +109,7 @@ class Resources(object):
                 self.convert_webp(item)
             try:
                 data = self.process_image(item.data)
-            except:
+            except Exception:
                 self.log.warn('Bad image file %r' % item.href)
                 continue
             else:
@@ -110,13 +127,12 @@ class Resources(object):
                     self.cover_offset = self.item_map[item.href] - 1
                     self.used_image_indices.add(self.cover_offset)
                     try:
-                        data = rescale_image(item.data, dimen=MAX_THUMB_DIMEN,
-                            maxsizeb=MAX_THUMB_SIZE)
+                        tdata = rescale_image(data, dimen=MAX_THUMB_DIMEN, maxsizeb=MAX_THUMB_SIZE)
                     except:
                         self.log.warn('Failed to generate thumbnail')
                     else:
                         self.image_indices.add(len(self.records))
-                        self.records.append(data)
+                        self.records.append(tdata)
                         self.thumbnail_offset = index - 1
                         self.used_image_indices.add(self.thumbnail_offset)
                         index += 1

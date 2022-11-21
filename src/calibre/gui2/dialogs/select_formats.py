@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -63,11 +62,7 @@ class SelectFormats(QDialog):
         self.fview.doubleClicked.connect(self.double_clicked,
                 type=Qt.ConnectionType.QueuedConnection)
         if exclude:
-            if QApplication.instance().is_dark_theme:
-                sheet = 'background-color: #DAA520; color: black'
-            else:
-                sheet = 'background-color: #fae7b5'
-            self.fview.setStyleSheet('QListView { %s }' % sheet)
+            self.fview.setStyleSheet(f'QListView {{ background-color: {QApplication.instance().emphasis_window_background_color} }}')
         self._l.addWidget(self.fview)
         self.fview.setModel(self.formats)
         self.fview.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection if single else
@@ -98,5 +93,5 @@ if __name__ == '__main__':
     from calibre.gui2 import Application
     app = Application([])
     d = SelectFormats(['epub', 'lrf', 'lit', 'mobi'], 'Choose a format')
-    d.exec_()
+    d.exec()
     print(d.selected_formats)

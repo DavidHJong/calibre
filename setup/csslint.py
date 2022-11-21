@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2020, Kovid Goyal <kovid at kovidgoyal.net>
 
 import os
@@ -10,7 +9,7 @@ from setup import Command
 
 
 class CSSLint(Command):
-    # We cant use the released copy since it has not had a release in years and
+    # We can't use the released copy since it has not had a release in years and
     # there are several critical bug fixes we need
 
     description = 'Update the bundled copy of csslint'

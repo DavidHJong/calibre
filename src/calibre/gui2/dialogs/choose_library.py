@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -17,7 +16,6 @@ from calibre.gui2 import error_dialog, choose_dir
 from calibre.constants import (filesystem_encoding, iswindows,
         get_portable_base)
 from calibre import isbytestring, patheq, force_unicode
-from polyglot.builtins import unicode_type
 
 
 class ProgressDialog(PD):
@@ -55,7 +53,7 @@ class ChooseLibrary(QDialog, Ui_Dialog):
         lp = db.library_path
         if isbytestring(lp):
             lp = lp.decode(filesystem_encoding)
-        loc = unicode_type(self.old_location.text()).format(lp)
+        loc = str(self.old_location.text()).format(lp)
         self.old_location.setText(loc)
         self.browse_button.clicked.connect(self.choose_loc)
         self.empty_library.toggled.connect(self.empty_library_toggled)
@@ -151,7 +149,7 @@ class ChooseLibrary(QDialog, Ui_Dialog):
 
             t = Thread(name='MoveLibrary', target=do_move)
             QTimer.singleShot(0, t.start)
-            pd.exec_()
+            pd.exec()
             if abort_move.is_set():
                 self.callback(self.db.library_path)
                 return
@@ -169,7 +167,7 @@ class ChooseLibrary(QDialog, Ui_Dialog):
             action = 'existing'
         elif self.empty_library.isChecked():
             action = 'new'
-        text = unicode_type(self.location.text()).strip()
+        text = str(self.location.text()).strip()
         if not text:
             return error_dialog(self, _('No location'), _('No location selected'),
                     show=True)
@@ -177,7 +175,7 @@ class ChooseLibrary(QDialog, Ui_Dialog):
         if action == 'move':
             try:
                 os.makedirs(loc)
-            except EnvironmentError as e:
+            except OSError as e:
                 if e.errno != errno.EEXIST:
                     raise
         if not loc or not os.path.exists(loc) or not os.path.isdir(loc):

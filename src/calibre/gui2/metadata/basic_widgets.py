@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -30,7 +29,7 @@ from calibre.ebooks.metadata import (
 from calibre.ebooks.metadata.meta import get_metadata
 from calibre.ebooks.oeb.polish.main import SUPPORTED as EDIT_SUPPORTED
 from calibre.gui2 import (
-    choose_files, choose_images, error_dialog, file_icon_provider, gprefs
+    choose_files_and_remember_all_files, choose_images, error_dialog, file_icon_provider, gprefs
 )
 from calibre.gui2.comments_editor import Editor
 from calibre.gui2.complete2 import EditWithComplete
@@ -50,7 +49,17 @@ from calibre.utils.date import (
 )
 from calibre.utils.filenames import make_long_path_useable
 from calibre.utils.icu import sort_key, strcmp
-from polyglot.builtins import iteritems, range, unicode_type
+from polyglot.builtins import iteritems
+
+
+def show_locked_file_error(parent, err):
+    import traceback
+    fname = getattr(err, 'filename', None)
+    p = 'Locked file: %s\n\n'%fname if fname else ''
+    error_dialog(parent, _('Permission denied'),
+            _('Could not change the on disk location of this'
+                ' book. Is it open in another program?'),
+            det_msg=p+traceback.format_exc(), show=True)
 
 
 def save_dialog(parent, title, msg, det_msg=''):
@@ -58,7 +67,7 @@ def save_dialog(parent, title, msg, det_msg=''):
     d.setWindowTitle(title)
     d.setText(msg)
     d.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
-    return d.exec_()
+    return d.exec()
 
 
 def clean_text(x):
@@ -67,7 +76,7 @@ def clean_text(x):
 
 '''
 The interface common to all widgets used to set basic metadata
-class BasicMetadataWidget(object):
+class BasicMetadataWidget:
 
     LABEL = "label text"
 
@@ -87,7 +96,7 @@ class BasicMetadataWidget(object):
 '''
 
 
-class ToMetadataMixin(object):
+class ToMetadataMixin:
 
     FIELD_NAME = None
     allow_undo = False
@@ -231,7 +240,7 @@ class TitleEdit(EnLineEdit, ToMetadataMixin):
 
     @property
     def current_val(self):
-        title = clean_text(unicode_type(self.text()))
+        title = clean_text(str(self.text()))
         if not title:
             title = self.get_default()
         return title.strip()
@@ -341,6 +350,7 @@ class AuthorsEdit(EditWithComplete, ToMetadataMixin):
         self.dialog = parent
         self.books_to_refresh = set()
         EditWithComplete.__init__(self, parent)
+        self.set_clear_button_enabled(False)
         self.setToolTip(self.TOOLTIP)
         self.setWhatsThis(self.TOOLTIP)
         self.setEditable(True)
@@ -361,7 +371,7 @@ class AuthorsEdit(EditWithComplete, ToMetadataMixin):
         current_authors = self.current_val
         from calibre.gui2.dialogs.authors_edit import AuthorsEdit
         d = AuthorsEdit(all_authors, current_authors, self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.set_value(d.authors)
 
     def manage_authors(self):
@@ -373,7 +383,11 @@ class AuthorsEdit(EditWithComplete, ToMetadataMixin):
             if d == QMessageBox.StandardButton.Cancel:
                 return
             if d == QMessageBox.StandardButton.Yes:
-                self.commit(self.db, self.id_)
+                try:
+                    self.commit(self.db, self.id_)
+                except PermissionError as err:
+                    show_locked_file_error(self, err)
+                    return
                 self.db.commit()
                 self.original_val = self.current_val
             else:
@@ -419,7 +433,7 @@ class AuthorsEdit(EditWithComplete, ToMetadataMixin):
     @property
     def current_val(self):
 
-        au = clean_text(unicode_type(self.text()))
+        au = clean_text(str(self.text()))
         if not au:
             au = self.get_default()
         return string_to_authors(au)
@@ -486,7 +500,7 @@ class AuthorSortEdit(EnLineEdit, ToMetadataMixin):
     @property
     def current_val(self):
 
-        return clean_text(unicode_type(self.text()))
+        return clean_text(str(self.text()))
 
     @current_val.setter
     def current_val(self, val):
@@ -507,7 +521,7 @@ class AuthorSortEdit(EnLineEdit, ToMetadataMixin):
         return self.db.new_api.author_sort_from_authors(authors, key_func=lambda x: x)
 
     def update_state(self, *args):
-        au = unicode_type(self.authors_edit.text())
+        au = str(self.authors_edit.text())
         au = re.sub(r'\s+et al\.$', '', au)
         au = self.author_sort_from_authors(string_to_authors(au))
 
@@ -533,13 +547,13 @@ class AuthorSortEdit(EnLineEdit, ToMetadataMixin):
             self.authors_edit.set_value(ans)
 
     def auto_generate(self, *args):
-        au = unicode_type(self.authors_edit.text())
+        au = str(self.authors_edit.text())
         au = re.sub(r'\s+et al\.$', '', au).strip()
         authors = string_to_authors(au)
         self.set_value(self.author_sort_from_authors(authors))
 
     def author_to_sort(self, *args):
-        au = unicode_type(self.authors_edit.text())
+        au = str(self.authors_edit.text())
         au = re.sub(r'\s+et al\.$', '', au).strip()
         if au:
             self.set_value(au)
@@ -597,7 +611,8 @@ class SeriesEdit(EditWithComplete, ToMetadataMixin):
     data_changed = pyqtSignal()
 
     def __init__(self, parent):
-        EditWithComplete.__init__(self, parent)
+        EditWithComplete.__init__(self, parent, sort_func=title_sort)
+        self.set_clear_button_enabled(False)
         self.set_separator(None)
         self.dialog = parent
         self.setSizeAdjustPolicy(
@@ -611,7 +626,7 @@ class SeriesEdit(EditWithComplete, ToMetadataMixin):
     @property
     def current_val(self):
 
-        return clean_text(unicode_type(self.currentText()))
+        return clean_text(str(self.currentText()))
 
     @current_val.setter
     def current_val(self, val):
@@ -643,7 +658,7 @@ class SeriesIndexEdit(make_undoable(QDoubleSpinBox), ToMetadataMixin):
     data_changed = pyqtSignal()
 
     def __init__(self, parent, series_edit):
-        super(SeriesIndexEdit, self).__init__(parent)
+        super().__init__(parent)
         self.valueChanged.connect(self.data_changed)
         self.dialog = parent
         self.db = self.original_series_name = None
@@ -737,7 +752,7 @@ class Format(QListWidgetItem):
         self.size = float(size)/(1024*1024)
         text = '%s (%.2f MB)'%(self.ext.upper(), self.size)
         QListWidgetItem.__init__(self, file_icon_provider().icon_from_ext(ext),
-                                 text, parent, QListWidgetItem.ItemType.UserType)
+                                 text, parent, QListWidgetItem.ItemType.UserType.value)
         if timestamp is not None:
             ts = timestamp.astimezone(local_tz)
             t = strftime('%a, %d %b %Y [%H:%M:%S]', ts.timetuple())
@@ -795,6 +810,10 @@ class FormatList(_FormatList):
         _FormatList.__init__(self, parent)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
 
+    def sizeHint(self):
+        sz = self.iconSize()
+        return QSize(sz.width() * 7, sz.height() * 3)
+
     def contextMenuEvent(self, event):
         item = self.itemFromIndex(self.currentIndex())
         originals = [self.item(x).ext.upper() for x in range(self.count())]
@@ -834,6 +853,7 @@ class FormatList(_FormatList):
 class FormatsManager(QWidget):
 
     data_changed = pyqtSignal()
+    ICON_SIZE = 32
 
     @property
     def changed(self):
@@ -852,29 +872,30 @@ class FormatsManager(QWidget):
         self._changed = False
 
         self.l = l = QGridLayout()
+        l.setContentsMargins(0, 0, 0, 0)
         self.setLayout(l)
         self.cover_from_format_button = QToolButton(self)
         self.cover_from_format_button.setToolTip(
                 _('Set the cover for the book from the selected format'))
-        self.cover_from_format_button.setIcon(QIcon(I('default_cover.png')))
-        self.cover_from_format_button.setIconSize(QSize(32, 32))
+        self.cover_from_format_button.setIcon(QIcon.ic('default_cover.png'))
+        self.cover_from_format_button.setIconSize(QSize(self.ICON_SIZE, self.ICON_SIZE))
 
         self.metadata_from_format_button = QToolButton(self)
-        self.metadata_from_format_button.setIcon(QIcon(I('edit_input.png')))
-        self.metadata_from_format_button.setIconSize(QSize(32, 32))
+        self.metadata_from_format_button.setIcon(QIcon.ic('edit_input.png'))
+        self.metadata_from_format_button.setIconSize(QSize(self.ICON_SIZE, self.ICON_SIZE))
         self.metadata_from_format_button.setToolTip(
                 _('Set metadata for the book from the selected format'))
 
         self.add_format_button = QToolButton(self)
-        self.add_format_button.setIcon(QIcon(I('add_book.png')))
-        self.add_format_button.setIconSize(QSize(32, 32))
+        self.add_format_button.setIcon(QIcon.ic('add_book.png'))
+        self.add_format_button.setIconSize(QSize(self.ICON_SIZE, self.ICON_SIZE))
         self.add_format_button.clicked.connect(self.add_format)
         self.add_format_button.setToolTip(
                 _('Add a format to this book'))
 
         self.remove_format_button = QToolButton(self)
-        self.remove_format_button.setIcon(QIcon(I('trash.png')))
-        self.remove_format_button.setIconSize(QSize(32, 32))
+        self.remove_format_button.setIcon(QIcon.ic('trash.png'))
+        self.remove_format_button.setIconSize(QSize(self.ICON_SIZE, self.ICON_SIZE))
         self.remove_format_button.clicked.connect(self.remove_format)
         self.remove_format_button.setToolTip(
                 _('Remove the selected format from this book'))
@@ -888,8 +909,7 @@ class FormatsManager(QWidget):
         self.formats.delete_format.connect(self.remove_format)
         self.formats.itemDoubleClicked.connect(self.show_format)
         self.formats.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
-        self.formats.setIconSize(QSize(32, 32))
-        self.formats.setMaximumWidth(200)
+        self.formats.setIconSize(QSize(self.ICON_SIZE, self.ICON_SIZE))
 
         l.addWidget(self.cover_from_format_button, 0, 0, 1, 1)
         l.addWidget(self.metadata_from_format_button, 2, 0, 1, 1)
@@ -952,7 +972,7 @@ class FormatsManager(QWidget):
         return
 
     def add_format(self, *args):
-        files = choose_files(
+        files = choose_files_and_remember_all_files(
                 self, 'add formats dialog', _("Choose formats for ") + self.dialog.title.current_val,
                 [(_('Books'), BOOK_EXTENSIONS)])
         self._add_formats(files)
@@ -1020,7 +1040,7 @@ class FormatsManager(QWidget):
         self.dialog.do_view_format(item.path, item.ext)
 
     def edit_format(self, item, *args):
-        from calibre.gui2.device import BusyCursor
+        from calibre.gui2.widgets import BusyCursor
         with BusyCursor():
             self.dialog.do_edit_format(item.path, item.ext)
 
@@ -1032,7 +1052,7 @@ class FormatsManager(QWidget):
                 fmt = self.formats.item(0)
             if fmt is None:
                 error_dialog(self, _('No format selected'),
-                    _('No format selected')).exec_()
+                    _('No format selected')).exec()
                 return None
         return fmt.ext.lower()
 
@@ -1057,7 +1077,7 @@ class FormatsManager(QWidget):
                     fmt = self.formats.item(0)
                 if fmt is None:
                     error_dialog(self, _('No format selected'),
-                        _('No format selected')).exec_()
+                        _('No format selected')).exec()
                     return None, None
             ext = fmt.ext.lower()
             if fmt.path is None:
@@ -1109,8 +1129,8 @@ class Cover(ImageView):  # {{{
                 RightClickButton.__init__(self, parent)
                 self.setText(text)
                 if icon is not None:
-                    self.setIcon(QIcon(I(icon)))
-                self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
+                    self.setIcon(QIcon.ic(icon))
+                self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Maximum)
                 self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
                 if action is not None:
                     self.clicked.connect(action)
@@ -1122,10 +1142,10 @@ class Cover(ImageView):  # {{{
             'Pressing it repeatedly can sometimes remove stubborn borders.'))
         b.m = m = QMenu(b)
         b.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        m.addAction(QIcon(I('trim.png')), _('Automatically trim borders'), self.trim_cover)
+        m.addAction(QIcon.ic('trim.png'), _('Automatically trim borders'), self.trim_cover)
         m.addSeparator()
         m.addAction(_('Trim borders manually'), self.manual_trim_cover)
-        m.addAction(QIcon(I('edit-undo.png')), _('Undo last trim'), self.undo_trim)
+        m.addAction(QIcon.ic('edit-undo.png'), _('Undo last trim'), self.undo_trim)
         b.setMenu(m)
         self.remove_cover_button = CB(_('&Remove'), 'trash.png', self.remove_cover)
 
@@ -1133,8 +1153,8 @@ class Cover(ImageView):  # {{{
         self.generate_cover_button = b = CB(_('&Generate cover'), 'default_cover.png', self.generate_cover)
         b.m = m = QMenu(b)
         b.setMenu(m)
-        m.addAction(QIcon(I('config.png')), _('Customize the styles and colors of the generated cover'), self.custom_cover)
-        m.addAction(QIcon(I('edit-undo.png')), _('Undo last Generate cover'), self.undo_generate)
+        m.addAction(QIcon.ic('config.png'), _('Customize the styles and colors of the generated cover'), self.custom_cover)
+        m.addAction(QIcon.ic('edit-undo.png'), _('Undo last Generate cover'), self.undo_generate)
         b.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
         self.buttons = [self.select_cover_button, self.remove_cover_button,
                 self.trim_cover_button, self.download_cover_button,
@@ -1173,17 +1193,17 @@ class Cover(ImageView):  # {{{
             if not os.access(_file, os.R_OK):
                 d = error_dialog(self, _('Cannot read'),
                         _('You do not have permission to read the file: ') + _file)
-                d.exec_()
+                d.exec()
                 return
             cover = None
             try:
                 with open(_file, "rb") as f:
                     cover = f.read()
-            except IOError as e:
+            except OSError as e:
                 d = error_dialog(
                         self, _('Error reading file'),
-                        _("<p>There was an error reading from file: <br /><b>") + _file + "</b></p><br />"+unicode_type(e))
-                d.exec_()
+                        _("<p>There was an error reading from file: <br /><b>") + _file + "</b></p><br />"+str(e))
+                d.exec()
             if cover:
                 orig = self.current_val
                 self.current_val = cover
@@ -1213,7 +1233,7 @@ class Cover(ImageView):  # {{{
         cdata = self.current_val
         from calibre.gui2.dialogs.trim_image import TrimImage
         d = TrimImage(cdata, parent=self)
-        if d.exec_() == QDialog.DialogCode.Accepted and d.image_data is not None:
+        if d.exec() == QDialog.DialogCode.Accepted and d.image_data is not None:
             self.current_val = d.image_data
             self.cdata_before_trim = cdata
 
@@ -1228,7 +1248,7 @@ class Cover(ImageView):  # {{{
         from calibre.gui2.covers import CoverSettingsDialog
         mi = self.dialog.to_book_metadata()
         d = CoverSettingsDialog(mi=mi, parent=self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.current_val = generate_cover(mi, prefs=d.prefs_for_rendering)
 
     def set_pixmap_from_data(self, data):
@@ -1265,7 +1285,7 @@ class Cover(ImageView):  # {{{
         if cdata:
             pm.loadFromData(cdata)
         if pm.isNull():
-            pm = QPixmap(I('default_cover.png'))
+            pm = QApplication.instance().cached_qpixmap('default_cover.png', device_pixel_ratio=self.devicePixelRatio())
         else:
             self._cdata = cdata
         pm.setDevicePixelRatio(getattr(self, 'devicePixelRatioF', self.devicePixelRatio)())
@@ -1340,7 +1360,7 @@ class RatingEdit(RatingEditor, ToMetadataMixin):  # {{{
     data_changed = pyqtSignal()
 
     def __init__(self, parent):
-        super(RatingEdit, self).__init__(parent)
+        super().__init__(parent)
         self.setToolTip(self.TOOLTIP)
         self.setWhatsThis(self.TOOLTIP)
         self.currentTextChanged.connect(self.data_changed)
@@ -1359,7 +1379,8 @@ class RatingEdit(RatingEditor, ToMetadataMixin):  # {{{
         self.original_val = self.current_val
 
     def commit(self, db, id_):
-        db.set_rating(id_, self.current_val, notify=False, commit=False)
+        if self.current_val != self.original_val:
+            db.set_rating(id_, self.current_val, notify=False, commit=False)
         return True
 
     def zero(self):
@@ -1379,6 +1400,7 @@ class TagsEdit(EditWithComplete, ToMetadataMixin):  # {{{
 
     def __init__(self, parent):
         EditWithComplete.__init__(self, parent)
+        self.set_clear_button_enabled(False)
         self.set_elide_mode(Qt.TextElideMode.ElideMiddle)
         self.currentTextChanged.connect(self.data_changed)
         self.lineEdit().setMaxLength(655360)  # see https://bugs.launchpad.net/bugs/1630944
@@ -1388,7 +1410,7 @@ class TagsEdit(EditWithComplete, ToMetadataMixin):  # {{{
 
     @property
     def current_val(self):
-        return [clean_text(x) for x in unicode_type(self.text()).split(',')]
+        return [clean_text(x) for x in str(self.text()).split(',')]
 
     @current_val.setter
     def current_val(self, val):
@@ -1404,12 +1426,15 @@ class TagsEdit(EditWithComplete, ToMetadataMixin):  # {{{
         self.current_val = tags
         self.update_items_cache(db.new_api.all_field_names('tags'))
         self.original_val = self.current_val
+        self.db = db
 
     @property
     def changed(self):
         return self.current_val != self.original_val
 
     def edit(self, db, id_):
+        ctrl_or_shift_pressed = (QApplication.keyboardModifiers() &
+                (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier))
         if self.changed:
             d = save_dialog(self, _('Tags changed'),
                     _('You have changed the tags. In order to use the tags'
@@ -1423,15 +1448,22 @@ class TagsEdit(EditWithComplete, ToMetadataMixin):  # {{{
                 self.original_val = self.current_val
             else:
                 self.current_val = self.original_val
-        d = TagEditor(self, db, id_)
-        if d.exec_() == QDialog.DialogCode.Accepted:
-            self.current_val = d.tags
-            self.update_items_cache(db.new_api.all_field_names('tags'))
+        if ctrl_or_shift_pressed:
+            from calibre.gui2.ui import get_gui
+            get_gui().do_tags_list_edit(None, 'tags')
+            self.update_items_cache(self.db.new_api.all_field_names('tags'))
+            self.initialize(self.db, id_)
+        else:
+            d = TagEditor(self, db, id_)
+            if d.exec() == QDialog.DialogCode.Accepted:
+                self.current_val = d.tags
+                self.update_items_cache(db.new_api.all_field_names('tags'))
 
     def commit(self, db, id_):
-        self.books_to_refresh |= db.set_tags(
-                id_, self.current_val, notify=False, commit=False,
-                allow_case_change=True)
+        if self.changed:
+            self.books_to_refresh |= db.set_tags(
+                    id_, self.current_val, notify=False, commit=False,
+                    allow_case_change=True)
         return True
 
     def keyPressEvent(self, ev):
@@ -1453,6 +1485,7 @@ class LanguagesEdit(LE, ToMetadataMixin):  # {{{
 
     def __init__(self, *args, **kwargs):
         LE.__init__(self, *args, **kwargs)
+        self.set_clear_button_enabled(False)
         self.textChanged.connect(self.data_changed)
         self.setToolTip(self.TOOLTIP)
 
@@ -1494,7 +1527,7 @@ class Identifiers(Dialog):
 
     def __init__(self, identifiers, parent=None):
         Dialog.__init__(self, _('Edit Identifiers'), 'edit-identifiers-dialog', parent=parent)
-        self.text.setPlainText('\n'.join('%s:%s' % (k, identifiers[k]) for k in sorted(identifiers, key=sort_key)))
+        self.text.setPlainText('\n'.join(f'{k}:{identifiers[k]}' for k in sorted(identifiers, key=sort_key)))
 
     def setup_ui(self):
         self.l = l = QVBoxLayout(self)
@@ -1556,16 +1589,16 @@ class IdentifiersEdit(QLineEdit, ToMetadataMixin):
         ac = m.addAction(_('Edit identifiers in a dedicated window'), self.edit_identifiers)
         m.insertAction(first, ac)
         m.insertSeparator(first)
-        m.exec_(ev.globalPos())
+        m.exec(ev.globalPos())
 
     def edit_identifiers(self):
         d = Identifiers(self.current_val, self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.current_val = d.get_identifiers()
 
     @property
     def current_val(self):
-        raw = unicode_type(self.text()).strip()
+        raw = str(self.text()).strip()
         parts = [clean_text(x) for x in raw.split(',')]
         ans = {}
         for x in parts:
@@ -1597,8 +1630,10 @@ class IdentifiersEdit(QLineEdit, ToMetadataMixin):
                     val[k] = v
         ids = sorted(iteritems(val), key=keygen)
         txt = ', '.join(['%s:%s'%(k.lower(), vl) for k, vl in ids])
-        # Use selectAll + insert instead of setText so that undo works
-        self.selectAll(), self.insert(txt.strip())
+        if self.allow_undo:
+            self.selectAll(), self.insert(txt.strip())
+        else:
+            self.setText(txt.strip())
         self.setCursorPosition(0)
 
     def initialize(self, db, id_):
@@ -1629,6 +1664,9 @@ class IdentifiersEdit(QLineEdit, ToMetadataMixin):
         identifier_found = self.parse_clipboard_for_identifier()
         if identifier_found:
             return
+        text = str(QApplication.clipboard().text()).strip()
+        if text.startswith('http://') or text.startswith('https://'):
+            return self.paste_prefix('url')
         try:
             prefix = gprefs['paste_isbn_prefixes'][0]
         except IndexError:
@@ -1639,17 +1677,17 @@ class IdentifiersEdit(QLineEdit, ToMetadataMixin):
         if prefix == 'isbn':
             self.paste_isbn()
         else:
-            text = unicode_type(QApplication.clipboard().text()).strip()
+            text = str(QApplication.clipboard().text()).strip()
             if text:
                 vals = self.current_val
                 vals[prefix] = text
                 self.current_val = vals
 
     def paste_isbn(self):
-        text = unicode_type(QApplication.clipboard().text()).strip()
+        text = str(QApplication.clipboard().text()).strip()
         if not text or not check_isbn(text):
             d = ISBNDialog(self, text)
-            if not d.exec_():
+            if not d.exec():
                 return
             text = d.text()
             if not text:
@@ -1666,14 +1704,14 @@ class IdentifiersEdit(QLineEdit, ToMetadataMixin):
     def parse_clipboard_for_identifier(self):
         from calibre.ebooks.metadata.sources.prefs import msprefs
         from calibre.utils.formatter import EvalFormatter
-        text = unicode_type(QApplication.clipboard().text()).strip()
+        text = str(QApplication.clipboard().text()).strip()
         if not text:
             return False
 
         rules = msprefs['id_link_rules']
         if rules:
             formatter = EvalFormatter()
-            vals = {'id' : '(?P<new_id>[^/]+)'}
+            vals = {'id' : '(?P<new_id>.+)'}
             for key in rules.keys():
                 rule = rules[key]
                 for name, template in rule:
@@ -1736,7 +1774,7 @@ class ISBNDialog(QDialog):  # {{{
         self.resize(sz)
 
     def accept(self):
-        isbn = unicode_type(self.line_edit.text())
+        isbn = str(self.line_edit.text())
         if not check_isbn(isbn):
             return error_dialog(self, _('Invalid ISBN'),
                     _('The ISBN you entered is not valid. Try again.'),
@@ -1744,7 +1782,7 @@ class ISBNDialog(QDialog):  # {{{
         QDialog.accept(self)
 
     def checkText(self, txt):
-        isbn = unicode_type(txt)
+        isbn = str(txt)
         if not isbn:
             sheet = ''
             extra = ''
@@ -1758,7 +1796,7 @@ class ISBNDialog(QDialog):  # {{{
         self.line_edit.setStyleSheet(sheet)
 
     def text(self):
-        return check_isbn(unicode_type(self.line_edit.text()))
+        return check_isbn(str(self.line_edit.text()))
 
 # }}}
 
@@ -1770,20 +1808,21 @@ class PublisherEdit(EditWithComplete, ToMetadataMixin):  # {{{
 
     def __init__(self, parent):
         EditWithComplete.__init__(self, parent)
+        self.set_clear_button_enabled(False)
         self.currentTextChanged.connect(self.data_changed)
         self.set_separator(None)
         self.setSizeAdjustPolicy(
                 QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.books_to_refresh = set()
         self.clear_button = QToolButton(parent)
-        self.clear_button.setIcon(QIcon(I('trash.png')))
+        self.clear_button.setIcon(QIcon.ic('trash.png'))
         self.clear_button.setToolTip(_('Clear publisher'))
         self.clear_button.clicked.connect(self.clearEditText)
 
     @property
     def current_val(self):
 
-        return clean_text(unicode_type(self.currentText()))
+        return clean_text(str(self.currentText()))
 
     @current_val.setter
     def current_val(self, val):
@@ -1817,7 +1856,7 @@ class DateEdit(make_undoable(DateTimeEdit), ToMetadataMixin):
     data_changed = pyqtSignal()
 
     def __init__(self, parent, create_clear_button=True):
-        super(DateEdit, self).__init__(parent)
+        super().__init__(parent)
         self.setToolTip(self.TOOLTIP)
         self.setWhatsThis(self.TOOLTIP)
         self.dateTimeChanged.connect(self.data_changed)
@@ -1829,7 +1868,7 @@ class DateEdit(make_undoable(DateTimeEdit), ToMetadataMixin):
         self.setDisplayFormat(fmt)
         if create_clear_button:
             self.clear_button = QToolButton(parent)
-            self.clear_button.setIcon(QIcon(I('trash.png')))
+            self.clear_button.setIcon(QIcon.ic('trash.png'))
             self.clear_button.setToolTip(_('Clear date'))
             self.clear_button.clicked.connect(self.reset_date)
 
@@ -1869,7 +1908,7 @@ class DateEdit(make_undoable(DateTimeEdit), ToMetadataMixin):
         elif ev.key() == Qt.Key.Key_Tab and is_date_undefined(self.current_val):
             ev.ignore()
         else:
-            return super(DateEdit, self).keyPressEvent(ev)
+            return super().keyPressEvent(ev)
 
 
 class PubdateEdit(DateEdit):

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2008, Kovid Goyal <kovid at kovidgoyal.net>
 
 import errno
@@ -34,6 +33,7 @@ if iswindows and hasattr(sys, 'frozen'):
     PDFTOHTML = os.path.join(base, 'pdftohtml.exe')
 if (islinux or isbsd) and getattr(sys, 'frozen', False):
     PDFTOHTML = os.path.join(sys.executables_location, 'bin', 'pdftohtml')
+PDFTOTEXT = os.path.join(os.path.dirname(PDFTOHTML), 'pdftotext' + ('.exe' if iswindows else ''))
 
 
 def pdftohtml(output_dir, pdf_path, no_images, as_xml=False):
@@ -172,4 +172,13 @@ def flip_images(raw):
             continue
         flip_image(img, flip)
     raw = re.sub(r'<STYLE.+?</STYLE>\s*', '', raw, flags=re.I|re.DOTALL)
+
+    counter = 0
+
+    def add_alt(m):
+        nonlocal counter
+        counter += 1
+        return m.group(1).rstrip('/') + f' alt="Image {counter}"/>'
+
+    raw = re.sub('(<IMG[^>]+)/?>', add_alt, raw, flags=re.I)
     return raw

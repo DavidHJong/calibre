@@ -11,7 +11,7 @@ from utils import uniq
 class EditWithComplete:
 
     def __init__(self, name, placeholder=None, tooltip=None, parent=None, input_type='text', onenterkey=None):
-        inpt = E.input(type=input_type, name=name, title=tooltip or '', placeholder=placeholder or '')
+        inpt = E.input(type=input_type, name=name, title=tooltip or '', placeholder=placeholder or '', autocomplete='off')
         self.input_id = ensure_id(inpt)
         self.onenterkey = onenterkey
         self.completion_popup = CompletionPopup(parent=parent, onselect=self.apply_completion)
@@ -112,6 +112,7 @@ def create_search_bar(action, name, tooltip=None, placeholder=None, button=None,
 
 def create_simple_input_with_history_native(name, tooltip=None, placeholder=None, history_size=100, input_type='text'):
     # cannot use in standalone viewer because of: https://bugreports.qt.io/browse/QTBUG-54433
+    # fixed in Qt 6.4.0
     dl_id = unique_id()
     dl = document.createElement('datalist')
     dl.id = dl_id

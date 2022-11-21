@@ -1,4 +1,3 @@
-
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
@@ -21,8 +20,8 @@ from calibre.ebooks.metadata import MetaInformation
 from calibre.utils.config import (make_config_dir, Config, ConfigProxy,
                                  plugin_dir, OptionParser)
 from calibre.ebooks.metadata.sources.base import Source
-from calibre.constants import DEBUG, numeric_version, system_plugins_loc
-from polyglot.builtins import iteritems, itervalues, unicode_type
+from calibre.constants import DEBUG, numeric_version, system_plugins_loc, ismacos
+from polyglot.builtins import iteritems, itervalues
 
 builtin_names = frozenset(p.name for p in builtin_plugins)
 BLACKLISTED_PLUGINS = frozenset({'Marvin XD', 'iOS reader applications'})
@@ -138,6 +137,9 @@ def reread_filetype_plugins():
 
     for plugin in _initialized_plugins:
         if isinstance(plugin, FileTypePlugin):
+            if ismacos and plugin.name == 'DeDRM' and plugin.version < (10, 0, 3):
+                print(f'Blacklisting the {plugin.name} plugin as it is too old and causes crashes', file=sys.stderr)
+                continue
             for ft in plugin.file_types:
                 if plugin.on_import:
                     _on_import[ft].append(plugin)
@@ -373,7 +375,7 @@ def metadata_writers():
     return ans
 
 
-class QuickMetadata(object):
+class QuickMetadata:
 
     def __init__(self):
         self.quick = False
@@ -388,7 +390,7 @@ class QuickMetadata(object):
 quick_metadata = QuickMetadata()
 
 
-class ApplyNullMetadata(object):
+class ApplyNullMetadata:
 
     def __init__(self):
         self.apply_null = False
@@ -403,7 +405,7 @@ class ApplyNullMetadata(object):
 apply_null_metadata = ApplyNullMetadata()
 
 
-class ForceIdentifiers(object):
+class ForceIdentifiers:
 
     def __init__(self):
         self.force_identifiers = False
@@ -751,7 +753,7 @@ def initialize_plugins(perf=False):
                 times[plugin.name] = time.time() - st
             _initialized_plugins.append(plugin)
         except:
-            print('Failed to initialize plugin:', repr(zfp))
+            print('Failed to initialize plugin:', repr(zfp), file=sys.stderr)
             if DEBUG:
                 traceback.print_exc()
     # Prevent a custom plugin from overriding stdout/stderr as this breaks
@@ -769,8 +771,7 @@ initialize_plugins()
 
 
 def initialized_plugins():
-    for plugin in _initialized_plugins:
-        yield plugin
+    yield from _initialized_plugins
 
 # }}}
 
@@ -781,12 +782,12 @@ def build_plugin(path):
     from calibre import prints
     from calibre.ptempfile import PersistentTemporaryFile
     from calibre.utils.zipfile import ZipFile, ZIP_STORED
-    path = unicode_type(path)
+    path = str(path)
     names = frozenset(os.listdir(path))
     if '__init__.py' not in names:
         prints(path, ' is not a valid plugin')
         raise SystemExit(1)
-    t = PersistentTemporaryFile(u'.zip')
+    t = PersistentTemporaryFile('.zip')
     with ZipFile(t, 'w', ZIP_STORED) as zf:
         zf.add_dir(path, simple_filter=lambda x:x in {'.git', '.bzr', '.svn', '.hg'})
     t.close()
@@ -851,8 +852,8 @@ def main(args=sys.argv):
         type_len = name_len = 0
         for plugin in initialized_plugins():
             type_len, name_len = max(type_len, len(plugin.type)), max(name_len, len(plugin.name))
-        fmt = '%-{}s%-{}s%-15s%-15s%s'.format(type_len+1, name_len+1)
-        print(fmt%tuple(('Type|Name|Version|Disabled|Site Customization'.split('|'))))
+        fmt = f'%-{type_len+1}s%-{name_len+1}s%-15s%-15s%s'
+        print(fmt%tuple('Type|Name|Version|Disabled|Site Customization'.split('|')))
         print()
         for plugin in initialized_plugins():
             print(fmt%(

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 # License: GPLv3 Copyright: 2010, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -8,25 +7,23 @@ from collections import OrderedDict
 from functools import partial
 from operator import attrgetter
 
-from qt.core import (
-    QAbstractListModel, QApplication, QDialog, QDialogButtonBox, QFont, QGridLayout,
-    QGroupBox, QIcon, QLabel, QListView, QMenu, QModelIndex, QPlainTextEdit, QComboBox,
-    QPushButton, QSizePolicy, QSplitter, QStyle, QStyledItemDelegate, QAbstractItemView, QItemSelectionModel,
-    QStyleOptionViewItem, Qt, QVBoxLayout, QWidget, pyqtSignal
-)
-
-from calibre import isbytestring
+from calibre import isbytestring, prepare_string_for_xml
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.preferences import AbortCommit, ConfigWidgetBase, test_widget
 from calibre.gui2.search_box import SearchBox2
 from calibre.gui2.widgets import PythonHighlighter
-from calibre.utils.config_base import (
-    default_tweaks_raw, exec_tweaks, normalize_tweak, read_custom_tweaks,
-    write_custom_tweaks
-)
+from calibre.utils.config_base import (default_tweaks_raw, exec_tweaks,
+                                       normalize_tweak, read_custom_tweaks,
+                                       write_custom_tweaks)
 from calibre.utils.icu import lower
 from calibre.utils.search_query_parser import ParseException, SearchQueryParser
-from polyglot.builtins import iteritems, range, unicode_type
+from polyglot.builtins import iteritems
+from qt.core import (QAbstractItemView, QAbstractListModel, QApplication,
+                     QComboBox, QDialog, QDialogButtonBox, QFont, QGridLayout,
+                     QGroupBox, QIcon, QItemSelectionModel, QLabel, QListView,
+                     QMenu, QModelIndex, QPlainTextEdit, QPushButton,
+                     QSizePolicy, Qt, QVBoxLayout, QWidget, QSplitter,
+                     pyqtSignal)
 
 ROOT = QModelIndex()
 
@@ -46,7 +43,10 @@ def format_doc(doc):
             default_indent = indent
         current_indent = indent
         if indent == default_indent:
-            lines[-1] += ' ' + line
+            if lines and lines[-1]:
+                lines[-1] += ' ' + line
+            else:
+                lines.append(line)
         else:
             lines.append('    ' + line.strip())
     return '\n'.join(lines).lstrip()
@@ -58,23 +58,7 @@ class AdaptSQP(SearchQueryParser):
         pass
 
 
-class Delegate(QStyledItemDelegate):  # {{{
-
-    def __init__(self, view):
-        QStyledItemDelegate.__init__(self, view)
-        self.view = view
-
-    def paint(self, p, opt, idx):
-        copy = QStyleOptionViewItem(opt)
-        copy.showDecorationSelected = True
-        if self.view.currentIndex() == idx:
-            copy.state |= QStyle.StateFlag.State_HasFocus
-        QStyledItemDelegate.paint(self, p, copy, idx)
-
-# }}}
-
-
-class Tweak(object):  # {{{
+class Tweak:  # {{{
 
     def __init__(self, name, doc, var_names, defaults, custom):
         translate = _
@@ -122,7 +106,7 @@ class Tweak(object):  # {{{
         for x, val in iteritems(self.default_values):
             val = self.custom_values.get(x, val)
             if isinstance(val, (list, tuple, dict, set, frozenset)):
-                ans.append('%s = %s' % (x, pformat(val)))
+                ans.append(f'{x} = {pformat(val)}')
             else:
                 ans.append('%s = %r'%(x, val))
         return '\n\n'.join(ans)
@@ -153,7 +137,7 @@ class Tweaks(QAbstractListModel, AdaptSQP):  # {{{
         except:
             return None
         if role == Qt.ItemDataRole.DisplayRole:
-            return textwrap.fill(tweak.name, 40)
+            return tweak.name
         if role == Qt.ItemDataRole.FontRole and tweak.is_customized:
             ans = QFont()
             ans.setBold(True)
@@ -260,7 +244,7 @@ class Tweaks(QAbstractListModel, AdaptSQP):  # {{{
                ' edit it unless you know what you are doing.', '',
             ]
         for tweak in self.tweaks:
-            ans.extend(['', unicode_type(tweak), ''])
+            ans.extend(['', str(tweak), ''])
 
         if self.plugin_tweaks:
             ans.extend(['', '',
@@ -369,9 +353,10 @@ class TweaksView(QListView):
         QListView.__init__(self, parent)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         self.setAlternatingRowColors(True)
-        self.setSpacing(5)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setMinimumWidth(300)
+        self.setStyleSheet('QListView::item { padding-top: 0.75ex; padding-bottom: 0.75ex; }')
+        self.setWordWrap(True)
 
     def currentChanged(self, cur, prev):
         QListView.currentChanged(self, cur, prev)
@@ -408,15 +393,16 @@ class ConfigWidget(ConfigWidgetBase):
 
         self.search = sb = SearchBox2(self)
         sb.sizePolicy().setHorizontalStretch(10)
-        sb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLength)
+        sb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         sb.setMinimumContentsLength(10)
+        g.setColumnStretch(0, 100)
         g.addWidget(self.search, 0, 0, 1, 1)
         self.next_button = b = QPushButton(self)
-        b.setIcon(QIcon(I("arrow-down.png")))
+        b.setIcon(QIcon.ic("arrow-down.png"))
         b.setText(_("&Next"))
         g.addWidget(self.next_button, 0, 1, 1, 1)
         self.previous_button = b = QPushButton(self)
-        b.setIcon(QIcon(I("arrow-up.png")))
+        b.setIcon(QIcon.ic("arrow-up.png"))
         b.setText(_("&Previous"))
         g.addWidget(self.previous_button, 0, 2, 1, 1)
 
@@ -447,8 +433,6 @@ class ConfigWidget(ConfigWidgetBase):
 
     def genesis(self, gui):
         self.gui = gui
-        self.delegate = Delegate(self.tweaks_view)
-        self.tweaks_view.setItemDelegate(self.delegate)
         self.tweaks_view.current_changed.connect(self.current_changed)
         self.view = self.tweaks_view
         self.highlighter = PythonHighlighter(self.edit_tweak.document())
@@ -463,7 +447,7 @@ class ConfigWidget(ConfigWidgetBase):
         self.search.search.connect(self.find)
         self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self.show_context_menu)
-        self.copy_icon = QIcon(I('edit-copy.png'))
+        self.copy_icon = QIcon.ic('edit-copy.png')
 
     def show_context_menu(self, point):
         idx = self.tweaks_view.currentIndex()
@@ -488,10 +472,10 @@ class ConfigWidget(ConfigWidgetBase):
     def plugin_tweaks(self):
         raw = self.tweaks.plugin_tweaks_string
         d = PluginTweaks(raw, self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             g, l = {}, {}
             try:
-                exec(unicode_type(d.edit.toPlainText()), g, l)
+                exec(str(d.edit.toPlainText()), g, l)
             except:
                 import traceback
                 return error_dialog(self, _('Failed'),
@@ -501,11 +485,13 @@ class ConfigWidget(ConfigWidgetBase):
             self.tweaks.set_plugin_tweaks(l)
             self.changed()
 
-    def current_changed(self, current, previous):
-        self.tweaks_view.scrollTo(current)
-        tweak = self.tweaks.data(current, Qt.ItemDataRole.UserRole)
-        self.help.setPlainText(tweak.doc)
-        self.edit_tweak.setPlainText(tweak.edit_text)
+    def current_changed(self, *a):
+        current = self.tweaks_view.currentIndex()
+        if current.isValid():
+            self.tweaks_view.scrollTo(current)
+            tweak = self.tweaks.data(current, Qt.ItemDataRole.UserRole)
+            self.help.setPlainText(tweak.doc)
+            self.edit_tweak.setPlainText(tweak.edit_text)
 
     def changed(self, *args):
         self.changed_signal.emit()
@@ -513,6 +499,7 @@ class ConfigWidget(ConfigWidgetBase):
     def initialize(self):
         self.tweaks = self._model = Tweaks()
         self.tweaks_view.setModel(self.tweaks)
+        self.tweaks_view.setCurrentIndex(self.tweaks_view.model().index(0))
 
     def restore_to_default(self, *args):
         idx = self.tweaks_view.currentIndex()
@@ -532,7 +519,7 @@ class ConfigWidget(ConfigWidgetBase):
         if idx.isValid():
             l, g = {}, {}
             try:
-                exec(unicode_type(self.edit_tweak.toPlainText()), g, l)
+                exec(str(self.edit_tweak.toPlainText()), g, l)
             except:
                 import traceback
                 error_dialog(self.gui, _('Failed'),
@@ -572,7 +559,7 @@ class ConfigWidget(ConfigWidgetBase):
         self.search.search_done(True)
         if not idx.isValid():
             info_dialog(self, _('No matches'),
-                    _('Could not find any shortcuts matching %s')%query,
+                    _('Could not find any tweaks matching <i>{}</i>').format(prepare_string_for_xml(query)),
                     show=True, show_copy_button=False)
             return
         self.highlight_index(idx)
@@ -589,7 +576,7 @@ class ConfigWidget(ConfigWidgetBase):
         if not idx.isValid():
             idx = self._model.index(0)
         idx = self._model.find_next(idx,
-                unicode_type(self.search.currentText()))
+                str(self.search.currentText()))
         self.highlight_index(idx)
 
     def find_previous(self, *args):
@@ -597,7 +584,7 @@ class ConfigWidget(ConfigWidgetBase):
         if not idx.isValid():
             idx = self._model.index(0)
         idx = self._model.find_next(idx,
-            unicode_type(self.search.currentText()), backwards=True)
+            str(self.search.currentText()), backwards=True)
         self.highlight_index(idx)
 
 

@@ -94,6 +94,7 @@ Q_OBJECT
   Q_PROPERTY(QSize slideSize READ slideSize WRITE setSlideSize)
   Q_PROPERTY(QFont subtitleFont READ subtitleFont WRITE setSubtitleFont)
   Q_PROPERTY(bool preserveAspectRatio READ preserveAspectRatio WRITE setPreserveAspectRatio)
+  Q_PROPERTY(bool activateOnDoubleClick READ activateOnDoubleClick WRITE setActivateOnDoubleClick)
 
 public:
   /*!
@@ -159,7 +160,7 @@ public:
   /*!
     Returns QImage of specified slide.
     This function will be called only whenever necessary, e.g. the 100th slide
-    will not be retrived when only the first few slides are visible.
+    will not be retrieved when only the first few slides are visible.
   */
   virtual QImage slide(int index) const;
 
@@ -167,6 +168,9 @@ public:
     Returns the index of slide currently shown in the middle of the viewport.
   */
   int currentSlide() const;
+
+  bool activateOnDoubleClick() const;
+  void setActivateOnDoubleClick(bool on);
 
 public slots:
 
@@ -215,6 +219,7 @@ protected:
   void mouseMoveEvent(QMouseEvent* event);
   void mousePressEvent(QMouseEvent* event);
   void mouseReleaseEvent(QMouseEvent* event);
+  void mouseDoubleClickEvent(QMouseEvent* event);
   void resizeEvent(QResizeEvent* event);
   void timerEvent(QTimerEvent* event);
 

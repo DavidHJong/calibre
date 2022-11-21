@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -75,7 +74,7 @@ class SourcesModel(QAbstractTableModel):  # {{{
             return plugin
         elif (role == Qt.ItemDataRole.DecorationRole and col == 0 and not
                     plugin.is_configured()):
-            return QIcon(I('list_remove.png'))
+            return QIcon.ic('list_remove.png')
         elif role == Qt.ItemDataRole.ToolTipRole:
             base = plugin.description + '\n\n'
             if plugin.is_configured():
@@ -91,6 +90,7 @@ class SourcesModel(QAbstractTableModel):  # {{{
         col = index.column()
         ret = False
         if col == 0 and role == Qt.ItemDataRole.CheckStateRole:
+            val = Qt.CheckState(val)
             if val == Qt.CheckState.Checked and 'Douban' in plugin.name:
                 if not question_dialog(self.gui_parent,
                     _('Are you sure?'), '<p>'+
@@ -100,7 +100,7 @@ class SourcesModel(QAbstractTableModel):  # {{{
                         ' sure you want to enable it?'),
                     show_copy_button=False):
                     return ret
-            self.enabled_overrides[plugin] = int(val)
+            self.enabled_overrides[plugin] = val
             ret = True
         if col == 1 and role == Qt.ItemDataRole.EditRole:
             try:
@@ -140,11 +140,11 @@ class SourcesModel(QAbstractTableModel):  # {{{
 
     def restore_defaults(self):
         self.beginResetModel()
-        self.enabled_overrides = dict([(p, (Qt.CheckState.Unchecked if p.name in
-            default_disabled_plugins else Qt.CheckState.Checked)) for p in self.plugins])
-        self.cover_overrides = dict([(p,
-            msprefs.defaults['cover_priorities'].get(p.name, 1))
-                for p in self.plugins])
+        self.enabled_overrides = {p: (Qt.CheckState.Unchecked if p.name in
+            default_disabled_plugins else Qt.CheckState.Checked) for p in self.plugins}
+        self.cover_overrides = {p:
+            msprefs.defaults['cover_priorities'].get(p.name, 1)
+                for p in self.plugins}
         self.endResetModel()
 
 # }}}
@@ -209,17 +209,17 @@ class FieldsModel(QAbstractListModel):  # {{{
 
     def restore_defaults(self):
         self.beginResetModel()
-        self.overrides = dict([(f, self.state(f, Qt.CheckState.Checked)) for f in self.fields])
+        self.overrides = {f: self.state(f, True) for f in self.fields}
         self.endResetModel()
 
     def select_all(self):
         self.beginResetModel()
-        self.overrides = dict([(f, Qt.CheckState.Checked) for f in self.fields])
+        self.overrides = {f: Qt.CheckState.Checked for f in self.fields}
         self.endResetModel()
 
     def clear_all(self):
         self.beginResetModel()
-        self.overrides = dict([(f, Qt.CheckState.Unchecked) for f in self.fields])
+        self.overrides = {f: Qt.CheckState.Unchecked for f in self.fields}
         self.endResetModel()
 
     def setData(self, index, val, role):
@@ -229,7 +229,7 @@ class FieldsModel(QAbstractListModel):  # {{{
             return False
         ret = False
         if role == Qt.ItemDataRole.CheckStateRole:
-            self.overrides[field] = int(val)
+            self.overrides[field] = Qt.CheckState(val)
             ret = True
         if ret:
             self.dataChanged.emit(index, index)
@@ -248,7 +248,7 @@ class FieldsModel(QAbstractListModel):  # {{{
 
     def select_user_defaults(self):
         self.beginResetModel()
-        self.overrides = dict([(f, self.user_default_state(f)) for f in self.fields])
+        self.overrides = {f: self.user_default_state(f) for f in self.fields}
         self.endResetModel()
 
     def commit_user_defaults(self):
@@ -352,7 +352,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
     def pc_finished(self):
         try:
-            self.pc.finished.diconnect()
+            self.pc.finished.disconnect()
         except:
             pass
         self.stack.setCurrentIndex(0)
@@ -364,7 +364,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         d = RulesDialog(self)
         if msprefs.get('tag_map_rules'):
             d.rules = msprefs['tag_map_rules']
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.tag_map_rules = d.rules
             self.changed_signal.emit()
 
@@ -373,7 +373,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         d = RulesDialog(self)
         if msprefs.get('author_map_rules'):
             d.rules = msprefs['author_map_rules']
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             self.author_map_rules = d.rules
             self.changed_signal.emit()
 

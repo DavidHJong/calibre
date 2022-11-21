@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -13,7 +12,6 @@ from calibre.gui2.preferences.toolbar_ui import Ui_Form
 from calibre.gui2 import gprefs, warning_dialog, error_dialog
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, AbortCommit
 from calibre.utils.icu import primary_sort_key
-from polyglot.builtins import unicode_type
 
 
 def sort_key_for_action(ac):
@@ -25,7 +23,7 @@ def sort_key_for_action(ac):
         return primary_sort_key('')
 
 
-class FakeAction(object):
+class FakeAction:
 
     def __init__(self, name, gui_name, icon, tooltip=None,
             dont_add_to=frozenset(), dont_remove_from=frozenset()):
@@ -41,12 +39,12 @@ class BaseModel(QAbstractListModel):
         if name == 'Donate':
             return FakeAction(
                 'Donate', _('Donate'), 'donate.png', tooltip=_('Donate to support the development of calibre'),
-                dont_add_to=frozenset(['context-menu', 'context-menu-device']))
+                dont_add_to=frozenset(['context-menu', 'context-menu-device', 'searchbar']))
         if name == 'Location Manager':
             return FakeAction('Location Manager', _('Location Manager'), 'reader.png',
                     _('Switch between library and device views'),
                     dont_add_to=frozenset(['menubar', 'toolbar',
-                        'toolbar-child', 'context-menu',
+                        'toolbar-child', 'context-menu', 'searchbar',
                         'context-menu-device']))
         if name is None:
             return FakeAction('--- '+('Separator')+' ---',
@@ -77,7 +75,7 @@ class BaseModel(QAbstractListModel):
             ic = action[1]
             if ic is None:
                 ic = 'blank.png'
-            return (QIcon(I(ic)))
+            return (QIcon.ic(ic))
         if role == Qt.ItemDataRole.ToolTipRole and action[2] is not None:
             return (action[2])
         return None
@@ -247,6 +245,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             ('toolbar', _('The main toolbar')),
             ('toolbar-device', _('The main toolbar when a device is connected')),
             ('toolbar-child', _('The optional second toolbar')),
+            ('searchbar', ('The buttons on the search bar')),
             ('menubar', _('The menubar')),
             ('menubar-device', _('The menubar when a device is connected')),
             ('context-menu', _('The context menu for the books in the '
@@ -270,7 +269,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             current_model = CurrentModel(key, gui)
             self.models[key] = (all_model, current_model)
         self.what.setCurrentIndex(0)
-        self.what.currentIndexChanged[int].connect(self.what_changed)
+        self.what.currentIndexChanged.connect(self.what_changed)
         self.what_changed(0)
 
         self.add_action_button.clicked.connect(self.add_action)
@@ -291,7 +290,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.help_text.setText(tt)
 
     def what_changed(self, idx):
-        key = unicode_type(self.what.itemData(idx) or '')
+        key = str(self.what.itemData(idx) or '')
         if key == 'blank':
             self.actions_widget.setVisible(False)
             self.spacer_widget.setVisible(True)

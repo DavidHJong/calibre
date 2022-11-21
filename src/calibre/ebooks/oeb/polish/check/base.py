@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -10,12 +9,11 @@ from functools import partial
 from contextlib import closing
 
 from calibre import detect_ncpus as cpu_count
-from polyglot.builtins import range
 
 DEBUG, INFO, WARN, ERROR, CRITICAL = range(5)
 
 
-class BaseError(object):
+class BaseError:
 
     HELP = ''
     INDIVIDUAL_FIX = ''
@@ -29,7 +27,7 @@ class BaseError(object):
         self.all_locations = None
 
     def __str__(self):
-        return '%s:%s (%s, %s):%s' % (self.__class__.__name__, self.name, self.line, self.col, self.msg)
+        return f'{self.__class__.__name__}:{self.name} ({self.line}, {self.col}):{self.msg}'
 
     __repr__ = __str__
 

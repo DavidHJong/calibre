@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__ = 'GPL v3'
@@ -8,8 +7,7 @@ __docformat__ = 'restructuredtext en'
 
 import os, shutil, subprocess, tempfile, json, time, filecmp, sys
 
-from setup import Command, __version__, require_clean_git, require_git_master
-from setup.upload import installers
+from setup import Command, __version__, require_clean_git, require_git_master, installer_names
 from setup.parallel_build import parallel_build, create_job
 
 
@@ -42,7 +40,7 @@ class Stage2(Command):
         self.info('Starting builds for all platforms, this will take a while...')
 
         session = ['layout vertical']
-        platforms = 'linux', 'osx', 'win'
+        platforms = 'linux64', 'linuxarm64', 'osx', 'win'
         for x in platforms:
             cmd = (
                 '''{exe} -c "import subprocess; subprocess.Popen(['{exe}', './setup.py', '{x}']).wait() != 0 and'''
@@ -59,7 +57,7 @@ class Stage2(Command):
         p.communicate('\n'.join(session).encode('utf-8'))
         p.wait()
 
-        for installer in installers(include_source=False):
+        for installer in installer_names(include_source=False):
             installer = self.j(self.d(self.SRC), installer)
             if not os.path.exists(installer) or os.path.getsize(installer) < 10000:
                 raise SystemExit(
@@ -225,7 +223,7 @@ class Manual(Command):
             orig = self.j(self.d(base), r)
             try:
                 sz = os.stat(orig).st_size
-            except EnvironmentError:
+            except OSError:
                 continue
             if sz == os.stat(f).st_size and filecmp._do_cmp(f, orig):
                 os.remove(f)
@@ -260,7 +258,7 @@ class ManPages(Command):
         os.environ['ALL_USER_MANUAL_LANGUAGES'] = ' '.join(languages)
         try:
             os.makedirs(dest)
-        except EnvironmentError:
+        except OSError:
             pass
         jobs = []
         for l in languages:
@@ -268,7 +266,7 @@ class ManPages(Command):
                 [sys.executable, self.j(base, 'build.py'), '--man-pages', l, dest],
                 '\n\n**************** Building translations for: %s' % l)
             )
-        self.info('\tCreating man pages in {} for {} languages...'.format(dest, len(jobs)))
+        self.info(f'\tCreating man pages in {dest} for {len(jobs)} languages...')
         subprocess.check_call(jobs[0].cmd)
         if not parallel_build(jobs[1:], self.info, verbose=False):
             raise SystemExit(1)
@@ -307,4 +305,4 @@ class TagRelease(Command):
         subprocess.check_call(
             'git tag -s v{0} -m "version-{0}"'.format(__version__).split()
         )
-        subprocess.check_call('git push origin v{0}'.format(__version__).split())
+        subprocess.check_call(f'git push origin v{__version__}'.split())

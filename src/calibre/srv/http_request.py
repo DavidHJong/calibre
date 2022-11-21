@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -15,7 +14,7 @@ from calibre.srv.loop import Connection, READ, WRITE
 from calibre.srv.utils import MultiDict, HTTP1, HTTP11, Accumulator
 from polyglot import http_client, reprlib
 from polyglot.urllib import unquote
-from polyglot.builtins import error_message, filter
+from polyglot.builtins import error_message
 
 protocol_map = {(1, 0):HTTP1, (1, 1):HTTP11}
 quoted_slash = re.compile(br'%2[fF]')
@@ -125,7 +124,7 @@ def normalize_header_name(name):
     return '-'.join(parts)
 
 
-class HTTPHeaderParser(object):
+class HTTPHeaderParser:
 
     '''
     Parse HTTP headers. Use this class by repeatedly calling the created object
@@ -291,7 +290,7 @@ class HTTPRequest(Connection):
 
     @property
     def state_description(self):
-        return 'State: %s Client: %s:%s Request: %s' % (
+        return 'State: {} Client: {}:{} Request: {}'.format(
             getattr(self.handle_event, '__name__', None),
             self.remote_addr, self.remote_port,
             force_unicode(getattr(self, 'request_line', 'WebSocketConnection'), 'utf-8'))

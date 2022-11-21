@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -15,7 +12,7 @@ class PluginWidget(Widget, Ui_Form):
     TITLE = _('PDF input')
     HELP = _('Options specific to')+' PDF '+_('input')
     COMMIT_NAME = 'pdf_input'
-    ICON = I('mimetypes/pdf.png')
+    ICON = 'mimetypes/pdf.png'
 
     def __init__(self, parent, get_option, get_help, db=None, book_id=None):
         Widget.__init__(self, parent, OPTIONS['input']['pdf'])

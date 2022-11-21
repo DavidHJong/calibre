@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2011, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -12,12 +9,11 @@ from threading import Thread
 from calibre import browser
 from calibre.constants import DEBUG
 from calibre.utils.img import scale_image
-from polyglot.builtins import range
 from polyglot.queue import Queue
 from polyglot.binary import from_base64_bytes
 
 
-class GenericDownloadThreadPool(object):
+class GenericDownloadThreadPool:
     '''
     add_task must be implemented in a subclass and must
     GenericDownloadThreadPool.add_task must be called

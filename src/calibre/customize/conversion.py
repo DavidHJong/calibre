@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 '''
 Defines the plugin system for conversions.
 '''
@@ -7,10 +5,9 @@ import re, os, shutil, numbers
 
 from calibre import CurrentDir
 from calibre.customize import Plugin
-from polyglot.builtins import unicode_type
 
 
-class ConversionOption(object):
+class ConversionOption:
 
     '''
     Class representing conversion options
@@ -50,7 +47,7 @@ class ConversionOption(object):
                 choices=self.choices)
 
 
-class OptionRecommendation(object):
+class OptionRecommendation:
     LOW  = 1
     MED  = 2
     HIGH = 3
@@ -81,12 +78,12 @@ class OptionRecommendation(object):
                                                     self.option.choices:
             raise ValueError('OpRec: %s: Recommended value not in choices'%
                              self.option.name)
-        if not (isinstance(self.recommended_value, (numbers.Number, bytes, unicode_type)) or self.recommended_value is None):
+        if not (isinstance(self.recommended_value, (numbers.Number, bytes, str)) or self.recommended_value is None):
             raise ValueError('OpRec: %s:'%self.option.name + repr(
                 self.recommended_value) + ' is not a string or a number')
 
 
-class DummyReporter(object):
+class DummyReporter:
 
     def __init__(self):
         self.cancel_requested = False
@@ -108,7 +105,7 @@ def gui_configuration_widget(name, parent, get_option_by_name,
             output_widget = importlib.import_module(
                     'calibre.gui2.convert.'+name)
             pw = output_widget.PluginWidget
-            pw.ICON = I('back.png')
+            pw.ICON = 'back.png'
             pw.HELP = _('Options specific to the output format.')
             return widget_factory(pw)
         except ImportError:
@@ -118,7 +115,7 @@ def gui_configuration_widget(name, parent, get_option_by_name,
             input_widget = importlib.import_module(
                     'calibre.gui2.convert.'+name)
             pw = input_widget.PluginWidget
-            pw.ICON = I('forward.png')
+            pw.ICON = 'forward.png'
             pw.HELP = _('Options specific to the input format.')
             return widget_factory(pw)
         except ImportError:
@@ -342,7 +339,7 @@ class OutputFormatPlugin(Plugin):
     @property
     def is_periodical(self):
         return self.oeb.metadata.publication_type and \
-            unicode_type(self.oeb.metadata.publication_type[0]).startswith('periodical:')
+            str(self.oeb.metadata.publication_type[0]).startswith('periodical:')
 
     def specialize_options(self, log, opts, input_fmt):
         '''

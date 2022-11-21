@@ -1,4 +1,3 @@
-
 #########################################################################
 #                                                                       #
 #                                                                       #
@@ -15,7 +14,6 @@ import sys, os, re
 
 from calibre.ebooks.rtf2xml import copy
 from calibre.ptempfile import better_mktemp
-from polyglot.builtins import unicode_type
 
 from . import open_for_read, open_for_write
 
@@ -290,7 +288,7 @@ class MakeLists:
             'mi<mk<list_start\n'
                 )
         # bogus levels are sometimes written for empty paragraphs
-        if unicode_type(self.__level) not in self.__allow_levels:
+        if str(self.__level) not in self.__allow_levels:
             lev_num = '0'
         else:
             lev_num = self.__level
@@ -330,10 +328,10 @@ class MakeLists:
             for the_key in the_keys_list:
                 if the_key in not_allow:
                     continue
-                self.__write_obj.write('<%s>%s' % (the_key, list_dict[the_key]))
+                self.__write_obj.write(f'<{the_key}>{list_dict[the_key]}')
             the_keys_level = level_dict.keys()
             for the_key in the_keys_level:
-                self.__write_obj.write('<%s>%s' % (the_key, level_dict[the_key]))
+                self.__write_obj.write(f'<{the_key}>{level_dict[the_key]}')
         self.__write_obj.write('\n')
         self.__write_obj.write(
             'mi<mk<liststart_\n'
@@ -392,7 +390,7 @@ class MakeLists:
         Returns:
             Nothing
         Logic
-            Look for the start of a paragraph defintion. If one is found, check if
+            Look for the start of a paragraph definition. If one is found, check if
             it contains a list-id. If it does, start a list. Change the state to
             in_pard.
             """

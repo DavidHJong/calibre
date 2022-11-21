@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #  jisyo.py
 #
 # Copyright 2011 Hiroshi Miura <miurahr@linux.com>
@@ -6,10 +5,8 @@
 
 from zlib import decompress
 
-from polyglot.builtins import unicode_type
 
-
-class jisyo (object):
+class jisyo :
     kanwadict = None
     itaijidict = None
     kanadict = None
@@ -36,8 +33,8 @@ class jisyo (object):
                 P('localization/pykakasi/kanadict2.calibre_msgpack', data=True))
 
     def load_jisyo(self, char):
-        if not isinstance(char, unicode_type):
-            char = unicode_type(char, 'utf-8')
+        if not isinstance(char, str):
+            char = str(char, 'utf-8')
         key = "%04x"%ord(char)
 
         try:  # already exist?

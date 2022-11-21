@@ -1,4 +1,3 @@
-
 #########################################################################
 #                                                                       #
 #                                                                       #
@@ -111,7 +110,7 @@ class AddBrackets:
             2-If an open bracket is found the code inside is ignore
             (written without modifications)
             3-If an accepted control word is found put the line
-            in a buffer then chage state to after cw
+            in a buffer then change state to after cw
             4-Else simply write the line
         """
         if line == 'cb<nu<clos-brack<0001\n' and self.__open_bracket:
@@ -133,7 +132,7 @@ class AddBrackets:
     def __after_control_word_func(self, line):
         """
         After a cw either add next allowed cw to temporary list or
-        change groupe and write it.
+        change group and write it.
         If the token leading to an exit is an open bracket go to
         ignore otherwise goto in body
         """
@@ -151,7 +150,7 @@ class AddBrackets:
 
     def __write_group(self):
         """
-        Write a tempory group after accepted control words end
+        Write a temporary group after accepted control words end
         But this is mostly useless in my opinion as there is no list of rejected cw
         This may be a way to implement future old rtf processing for cw
         Utility: open a group to just put brackets but why be so complicated?
@@ -163,7 +162,7 @@ class AddBrackets:
                 )
             self.__open_bracket = False
 
-        inline_string = ''.join(['%s<nu<%s\n' % (k, v)
+        inline_string = ''.join([f'{k}<nu<{v}\n'
                 for k, v in iteritems(self.__inline)
                     if v != 'false'])
         if inline_string:

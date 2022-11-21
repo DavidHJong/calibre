@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2018, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -14,7 +13,6 @@ from calibre.gui2.tag_mapper import (
     Tester as TesterBase
 )
 from calibre.utils.config import JSONConfig
-from polyglot.builtins import unicode_type
 
 author_maps = JSONConfig('author-mapping-rules')
 
@@ -40,6 +38,7 @@ class RuleEdit(RuleEditBase):
     SUBJECT = _('the author, if the author name')
     VALUE_ERROR = _('You must provide a value for the author name to match')
     REPLACE_TEXT = _('with the name:')
+    SINGLE_EDIT_FIELD_NAME = 'authors'
 
     @property
     def can_use_tag_editor(self):
@@ -66,13 +65,13 @@ class RuleEdit(RuleEditBase):
     def rule(self, rule):
         def sc(name):
             c = getattr(self, name)
-            idx = c.findData(unicode_type(rule.get(name, '')))
+            idx = c.findData(str(rule.get(name, '')))
             if idx < 0:
                 idx = 0
             c.setCurrentIndex(idx)
         sc('match_type'), sc('action')
-        self.query.setText(unicode_type(rule.get('query', '')).strip())
-        self.replace.setText(unicode_type(rule.get('replace', '')).strip())
+        self.query.setText(str(rule.get('query', '')).strip())
+        self.replace.setText(str(rule.get('replace', '')).strip())
 
 
 class RuleEditDialog(RuleEditDialogBase):
@@ -132,7 +131,7 @@ if __name__ == '__main__':
     d.rules = [
             {'action':'replace', 'query':'alice B & alice bob', 'match_type':'one_of', 'replace':'Alice Bob'},
     ]
-    d.exec_()
+    d.exec()
     from pprint import pprint
     pprint(d.rules)
     del d, app

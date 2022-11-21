@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -18,14 +17,13 @@ from calibre.gui2.actions import InterfaceAction
 from calibre.ptempfile import (PersistentTemporaryDirectory,
         PersistentTemporaryFile)
 from calibre.utils.config import prefs, tweaks
-from polyglot.builtins import unicode_type
 
 
 class UnpackBook(QDialog):
 
     def __init__(self, parent, book_id, fmts, db):
         QDialog.__init__(self, parent)
-        self.setWindowIcon(QIcon(I('unpack-book.png')))
+        self.setWindowIcon(QIcon.ic('unpack-book.png'))
         self.book_id, self.fmts, self.db_ref = book_id, fmts, weakref.ref(db)
         self._exploded = None
         self._cleanup_dirs = []
@@ -36,7 +34,7 @@ class UnpackBook(QDialog):
             index_is_id=True))
 
         button = self.fmt_choice_buttons[0]
-        button_map = {unicode_type(x.text()):x for x in self.fmt_choice_buttons}
+        button_map = {str(x.text()):x for x in self.fmt_choice_buttons}
         of = prefs['output_format'].upper()
         df = tweaks.get('default_tweak_format', None)
         lf = gprefs.get('last_tweak_format', None)
@@ -104,10 +102,10 @@ class UnpackBook(QDialog):
         b.setContentsMargins(left, top, right, bottom)
         l.addLayout(b, stretch=10)
 
-        self.explode_button = QPushButton(QIcon(I('wizard.png')), _('&Explode book'))
-        self.preview_button = QPushButton(QIcon(I('view.png')), _('&Preview book'))
-        self.cancel_button  = QPushButton(QIcon(I('window-close.png')), _('&Cancel'))
-        self.rebuild_button = QPushButton(QIcon(I('exec.png')), _('&Rebuild book'))
+        self.explode_button = QPushButton(QIcon.ic('wizard.png'), _('&Explode book'))
+        self.preview_button = QPushButton(QIcon.ic('view.png'), _('&Preview book'))
+        self.cancel_button  = QPushButton(QIcon.ic('window-close.png'), _('&Cancel'))
+        self.rebuild_button = QPushButton(QIcon.ic('exec.png'), _('&Rebuild book'))
 
         self.explode_button.setToolTip(
                 _('Explode the book to edit its components'))
@@ -283,7 +281,7 @@ class UnpackBook(QDialog):
     def current_format(self):
         for b in self.fmt_choice_buttons:
             if b.isChecked():
-                return unicode_type(b.text())
+                return str(b.text())
 
 
 class UnpackBookAction(InterfaceAction):
@@ -340,9 +338,9 @@ class UnpackBookAction(InterfaceAction):
             'mobi', 'azw'})
         if not tweakable_fmts:
             return error_dialog(self.gui, _('Cannot unpack book'),
-                    _('The book must be in ePub, HTMLZ or AZW3 formats to unpack.'
+                    _('The book must be in EPUB, HTMLZ or AZW3 formats to unpack.'
                         '\n\nFirst convert the book to one of these formats.'),
                     show=True)
         dlg = UnpackBook(self.gui, book_id, tweakable_fmts, db)
-        dlg.exec_()
+        dlg.exec()
         dlg.cleanup()

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -8,13 +7,13 @@ __docformat__ = 'restructuredtext en'
 
 import weakref
 from functools import wraps
-from collections import MutableMapping, MutableSequence
+from collections.abc import MutableMapping, MutableSequence
 from copy import deepcopy
 
 from calibre.ebooks.metadata.book.base import Metadata, SIMPLE_GET, TOP_LEVEL_IDENTIFIERS, NULL_VALUES, ALL_METADATA_FIELDS
 from calibre.ebooks.metadata.book.formatter import SafeFormat
 from calibre.utils.date import utcnow
-from polyglot.builtins import unicode_type, native_string_type
+from polyglot.builtins import native_string_type
 
 # Lazy format metadata retrieval {{{
 '''
@@ -34,7 +33,7 @@ def resolved(f):
     return wrapper
 
 
-class MutableBase(object):
+class MutableBase:
 
     @resolved
     def __str__(self):
@@ -46,7 +45,7 @@ class MutableBase(object):
 
     @resolved
     def __unicode__(self):
-        return unicode_type(self._values)
+        return str(self._values)
 
     @resolved
     def __len__(self):

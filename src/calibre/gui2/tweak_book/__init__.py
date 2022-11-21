@@ -1,12 +1,11 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import string
-from polyglot.builtins import iteritems, map
+from polyglot.builtins import iteritems
 
 from calibre.utils.config import JSONConfig
 from calibre.spell.dictionary import Dictionaries, parse_lang_code
@@ -56,6 +55,7 @@ d['remove_unused_classes'] = False
 d['merge_identical_selectors'] = False
 d['merge_identical_selectors'] = False
 d['merge_rules_with_identical_properties'] = False
+d['remove_unreferenced_sheets'] = True
 d['global_book_toolbar'] = [
 'new-file', 'open-book',  'save-book', None, 'global-undo', 'global-redo', 'create-checkpoint', None, 'donate', 'user-manual']
 d['global_tools_toolbar'] = [
@@ -84,6 +84,7 @@ d['file_list_shows_full_pathname'] = False
 d['auto_link_stylesheets'] = True
 d['check_external_link_anchors'] = True
 d['remove_ncx'] = True
+d['html_transform_scope'] = 'current'
 del d
 
 ucase_map = {l:string.ascii_uppercase[i] for i, l in enumerate(string.ascii_lowercase)}

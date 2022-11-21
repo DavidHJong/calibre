@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2014, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -8,7 +7,6 @@ import os
 import re
 import shutil
 import sys
-from calibre_extensions import hunspell
 from collections import defaultdict, namedtuple
 from functools import partial
 from itertools import chain
@@ -19,7 +17,7 @@ from calibre.spell import parse_lang_code
 from calibre.utils.config import JSONConfig
 from calibre.utils.icu import capitalize
 from calibre.utils.localization import get_lang, get_system_locale
-from polyglot.builtins import filter, iteritems, itervalues, map, unicode_type
+from polyglot.builtins import iteritems, itervalues
 
 Dictionary = namedtuple('Dictionary', 'primary_locale locales dicpath affpath builtin name id')
 LoadedDictionary = namedtuple('Dictionary', 'primary_locale locales obj builtin name id')
@@ -30,7 +28,7 @@ dprefs.defaults['user_dictionaries'] = [{'name':_('Default'), 'is_active':True, 
 not_present = object()
 
 
-class UserDictionary(object):
+class UserDictionary:
 
     __slots__ = ('name', 'is_active', 'words')
 
@@ -52,7 +50,8 @@ def builtin_dictionaries():
     if _builtins is None:
         dics = []
         for lc in glob.glob(os.path.join(P('dictionaries', allow_user_override=False), '*/locales')):
-            locales = list(filter(None, open(lc, 'rb').read().decode('utf-8').splitlines()))
+            with open(lc, 'rb') as lcf:
+                locales = list(filter(None, lcf.read().decode('utf-8').splitlines()))
             locale = locales[0]
             base = os.path.dirname(lc)
             dics.append(Dictionary(
@@ -67,7 +66,8 @@ def custom_dictionaries(reread=False):
     if _custom is None or reread:
         dics = []
         for lc in glob.glob(os.path.join(config_dir, 'dictionaries', '*/locales')):
-            locales = list(filter(None, open(lc, 'rb').read().decode('utf-8').splitlines()))
+            with open(lc, 'rb') as cdf:
+                locales = list(filter(None, cdf.read().decode('utf-8').splitlines()))
             try:
                 name, locale, locales = locales[0], locales[1], locales[1:]
             except IndexError:
@@ -163,20 +163,21 @@ def get_dictionary(locale, exact_match=False):
 
 
 def load_dictionary(dictionary):
+    from calibre_extensions import hunspell
 
     def fix_path(path):
         if isinstance(path, bytes):
             path = path.decode(filesystem_encoding)
         path = os.path.abspath(path)
         if iswindows:
-            path = r'\\?\{}'.format(path)
+            path = fr'\\?\{path}'
         return path
 
     obj = hunspell.Dictionary(fix_path(dictionary.dicpath), fix_path(dictionary.affpath))
     return LoadedDictionary(dictionary.primary_locale, dictionary.locales, obj, dictionary.builtin, dictionary.name, dictionary.id)
 
 
-class Dictionaries(object):
+class Dictionaries:
 
     def __init__(self):
         self.remove_hyphenation = re.compile('[\u2010-]+')
@@ -214,8 +215,8 @@ class Dictionaries(object):
                             try:
                                 ans.obj.add(word)
                             except Exception:
-                                # not critical since all it means is that the word wont show up in suggestions
-                                prints('Failed to add the word %r to the dictionary for %s' % (word, locale), file=sys.stderr)
+                                # not critical since all it means is that the word won't show up in suggestions
+                                prints(f'Failed to add the word {word!r} to the dictionary for {locale}', file=sys.stderr)
             self.dictionaries[locale] = ans
         return ans
 
@@ -395,7 +396,7 @@ class Dictionaries(object):
 
         if d is not None:
             try:
-                ans = d.obj.suggest(unicode_type(word).replace('\u2010', '-'))
+                ans = d.obj.suggest(str(word).replace('\u2010', '-'))
             except ValueError:
                 pass
             else:
@@ -435,7 +436,7 @@ def find_tests():
         def setUp(self):
             dictionaries = Dictionaries()
             dictionaries.initialize()
-            eng = parse_lang_code('en')
+            eng = parse_lang_code('en-GB')
             self.recognized = partial(dictionaries.recognized, locale=eng)
             self.suggestions = partial(dictionaries.suggestions, locale=eng)
 
@@ -446,11 +447,21 @@ def find_tests():
         def test_dictionaries(self):
             for w in 'recognized one-half one\u2010half'.split():
                 self.ar(w)
-            d = load_dictionary(get_dictionary(parse_lang_code('es'))).obj
-            self.assertTrue(d.recognized('Achí'))
+            d = load_dictionary(get_dictionary(parse_lang_code('es-ES'))).obj
+            self.assertTrue(d.recognized('Ahí'))
             self.assertIn('one\u2010half', self.suggestions('oone\u2010half'))
+            d = load_dictionary(get_dictionary(parse_lang_code('es'))).obj
             self.assertIn('adequately', self.suggestions('ade-quately'))
             self.assertIn('magic. Wand', self.suggestions('magic.wand'))
             self.assertIn('List', self.suggestions('Lis𝑘t'))
 
     return unittest.TestLoader().loadTestsFromTestCase(TestDictionaries)
+
+
+def test():
+    from calibre.utils.run_tests import run_cli
+    run_cli(find_tests())
+
+
+if __name__ == '__main__':
+    test()

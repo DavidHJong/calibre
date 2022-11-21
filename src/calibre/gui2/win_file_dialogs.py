@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -12,9 +11,8 @@ from uuid import uuid4
 from contextlib import suppress
 
 
-from polyglot.builtins import filter, string_or_bytes, unicode_type
+from polyglot.builtins import string_or_bytes
 
-is64bit = sys.maxsize > (1 << 32)
 base = sys.extensions_location if hasattr(sys, 'new_app_layout') else os.path.dirname(sys.executable)
 HELPER = os.path.join(base, 'calibre-file-dialog.exe')
 current_app_uid = None
@@ -47,7 +45,7 @@ def get_hwnd(widget=None):
 def serialize_hwnd(hwnd):
     if hwnd is None:
         return b''
-    return struct.pack('=B4s' + ('Q' if is64bit else 'I'), 4, b'HWND', int(hwnd))
+    return struct.pack('=B4sQ', 4, b'HWND', int(hwnd))
 
 
 def serialize_secret(secret):
@@ -61,7 +59,7 @@ def serialize_binary(key, val):
 
 def serialize_string(key, val):
     key = key.encode('ascii') if not isinstance(key, bytes) else key
-    val = unicode_type(val).encode('utf-8')
+    val = str(val).encode('utf-8')
     if len(val) > 2**16 - 1:
         raise ValueError('%s is too long' % key)
     return struct.pack('=B%dsH%ds' % (len(key), len(val)), len(key), key, len(val), val)
@@ -190,7 +188,7 @@ def run_file_dialog(
             [HELPER], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE),
                data, loop.dialog_closed.emit)
     h.start()
-    loop.exec_(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+    loop.exec(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
     def decode(x):
         x = x or b''
@@ -205,10 +203,10 @@ def run_file_dialog(
     from calibre import prints
     from calibre.constants import DEBUG
     if DEBUG:
-        prints('stdout+stderr from file dialog helper:', unicode_type([h.stdoutdata, h.stderrdata]))
+        prints('stdout+stderr from file dialog helper:', str([h.stdoutdata, h.stderrdata]))
 
     if h.rc != 0:
-        raise Exception('File dialog failed (return code %s): %s' % (h.rc, get_errors()))
+        raise Exception(f'File dialog failed (return code {h.rc}): {get_errors()}')
     server.join(2)
     if server.is_alive():
         raise Exception('Timed out waiting for read from pipe to complete')
@@ -218,7 +216,7 @@ def run_file_dialog(
         return ()
     parts = list(filter(None, server.data.split(b'\0')))
     if DEBUG:
-        prints('piped data from file dialog helper:', unicode_type(parts))
+        prints('piped data from file dialog helper:', str(parts))
     if len(parts) < 2:
         return ()
     if parts[0] != secret:
@@ -262,7 +260,7 @@ def choose_dir(window, name, title, default_dir='~', no_save_dir=False):
 
 
 def choose_files(window, name, title,
-                 filters=(), all_files=True, select_only_single_file=False, default_dir=u'~'):
+                 filters=(), all_files=True, select_only_single_file=False, default_dir='~'):
     name, initial_folder = get_initial_folder(name, title, default_dir)
     file_types = list(filters)
     if all_files:
@@ -362,7 +360,7 @@ def test(helper=HELPER):
     server.join(2)
     parts = list(filter(None, server.data.split(b'\0')))
     if parts[0] != secret:
-        raise RuntimeError('Did not get back secret: %r != %r' % (secret, parts[0]))
+        raise RuntimeError(f'Did not get back secret: {secret!r} != {parts[0]!r}')
     q = parts[1].decode('utf-8')
     if q != echo:
         raise RuntimeError('Unexpected response: %r' % server.data)

@@ -18,10 +18,8 @@ from qt.core import (
 )
 
 from calibre.constants import islinux
-from calibre.ebooks.metadata import rating_to_stars
-from calibre.gui2 import (
-    available_height, available_width, config, gprefs, rating_font
-)
+from calibre.ebooks.metadata import rating_to_stars, authors_to_string
+from calibre.gui2 import config, gprefs, rating_font
 from calibre_extensions import pictureflow
 
 
@@ -98,7 +96,7 @@ class DatabaseImages(pictureflow.FlowImages):
     def init_template(self, db):
         self.template_cache = {}
         self.template_error_reported = False
-        self.template = db.pref('cover_browser_title_template', '{title}')
+        self.template = db.pref('cover_browser_title_template', '{title}') or ''
         self.template_is_title = self.template == '{title}'
         self.template_is_empty = not self.template.strip()
 
@@ -150,6 +148,16 @@ class DatabaseImages(pictureflow.FlowImages):
                     if val:
                         return rating_to_stars(val, allow_half_stars=db.field_metadata[field]['display'].get('allow_half_stars'))
                 else:
+                    if field == 'authors':
+                        book_id = self.model.id(index)
+                        val = db.field_for(field, book_id, default_value=0)
+                        if val == (_('Unknown'),):
+                            val = ''
+                        elif val:
+                            val = authors_to_string(val).replace('&', '&&')
+                        else:
+                            val = ''
+                        return val
                     return self.render_template('{%s}' % field, index, db).replace('&', '&&')
         except Exception:
             if not self.subtitle_error_reported:
@@ -193,6 +201,8 @@ class CoverFlow(pictureflow.PictureFlow):
         self.setPreserveAspectRatio(gprefs['cb_preserve_aspect_ratio'])
         if not gprefs['cover_browser_reflections']:
             self.setShowReflections(False)
+        if gprefs['cb_double_click_to_activate']:
+            self.setActivateOnDoubleClick(True)
 
     def one_auto_scroll(self):
         if self.currentSlide() >= self.count() - 1:
@@ -247,10 +257,7 @@ class CBDialog(QDialog):
         self.setWindowTitle(_('Browse by covers'))
         self.layout().addWidget(cover_flow)
 
-        geom = gprefs.get('cover_browser_dialog_geometry', None)
-        if not geom or not QApplication.instance().safe_restore_geometry(self, geom):
-            h, w = available_height()-60, int(available_width()/1.5)
-            self.resize(w, h)
+        self.restore_geometry(gprefs, 'cover_browser_dialog_geometry')
         self.action_fs_toggle = a = QAction(self)
         self.addAction(a)
         a.setShortcuts([QKeySequence(QKeySequence.StandardKey.FullScreen)])
@@ -280,10 +287,15 @@ class CBDialog(QDialog):
             menuless_qaction.shortcuts()))
         a.triggered.connect(iactions['Send To Device'].menuless_qaction.trigger)
 
+    def sizeHint(self):
+        sz = self.screen().availableSize()
+        sz.setHeight(sz.height()-60)
+        sz.setWidth(int(sz.width()/1.5))
+        return sz
+
     def closeEvent(self, *args):
         if not self.isFullScreen():
-            geom = bytearray(self.saveGeometry())
-            gprefs['cover_browser_dialog_geometry'] = geom
+            self.save_geometry(gprefs, 'cover_browser_dialog_geometry')
         self.closed.emit()
 
     def show_normal(self):
@@ -303,7 +315,7 @@ class CBDialog(QDialog):
             self.show_fullscreen()
 
 
-class CoverFlowMixin(object):
+class CoverFlowMixin:
 
     disable_cover_browser_refresh = False
 
@@ -485,7 +497,6 @@ def test():
     app = QApplication([])
     w = QMainWindow()
     cf = CoverFlow()
-    cf.resize(int(available_width()/1.5), available_height()-60)
     w.resize(cf.size()+QSize(30, 20))
     model = DummyImageList()
     cf.setImages(model)
@@ -494,7 +505,7 @@ def test():
 
     w.show()
     cf.setFocus(Qt.FocusReason.OtherFocusReason)
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 def main(args=sys.argv):
@@ -506,7 +517,6 @@ if __name__ == '__main__':
     app = QApplication([])
     w = QMainWindow()
     cf = CoverFlow()
-    cf.resize(int(available_width()/1.5), available_height()-60)
     w.resize(cf.size()+QSize(30, 20))
     path = sys.argv[1]
     model = FileSystemImages(sys.argv[1])
@@ -516,4 +526,4 @@ if __name__ == '__main__':
 
     w.show()
     cf.setFocus(Qt.FocusReason.OtherFocusReason)
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

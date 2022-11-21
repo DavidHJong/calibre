@@ -20,7 +20,7 @@ def parse_key_repr(sc):
             ans.ctrlKey = True
         elif q is 'alt':
             ans.altKey = True
-        elif q is 'meta':
+        elif q is 'meta' or q is 'cmd':
             ans.metaKey = True
         elif q is 'shift':
             ans.shiftKey = True
@@ -96,7 +96,7 @@ def common_shortcuts():  # {{{
         v"['Ctrl+ArrowUp', 'Ctrl+ArrowLeft', 'Home']",
         'scroll',
         _('Scroll to the beginning of the current file'),
-        _('When the e-book is made of multiple individual files, scroll to the start of the current file.'),
+        _('When the e-book is made of multiple individual files, scroll to the start of the current file'),
     ),
 
     'start_of_book': desc(
@@ -115,7 +115,7 @@ def common_shortcuts():  # {{{
         v"['Ctrl+ArrowDown', 'Ctrl+ArrowRight', 'End']",
         'scroll',
         _('Scroll to the end of the current file'),
-        _('When the e-book is made of multiple individual files, scroll to the end of the current file.'),
+        _('When the e-book is made of multiple individual files, scroll to the end of the current file'),
     ),
 
     'up': desc(
@@ -219,7 +219,7 @@ def common_shortcuts():  # {{{
     ),
 
     'start_search': desc(
-        v"['/', 'Ctrl+f']",
+        v"['/', 'Ctrl+f', 'Cmd+f']",
         'ui',
         _('Start search'),
     ),
@@ -476,7 +476,7 @@ def add_standalone_viewer_shortcuts(sc):
     )
 
     sc['print'] = desc(
-        "Ctrl+P",
+        "Ctrl+p",
         'ui',
         _('Print book to PDF'),
     )

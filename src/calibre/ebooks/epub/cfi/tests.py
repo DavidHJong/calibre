@@ -1,15 +1,13 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import unittest, numbers
-from polyglot.builtins import map
 
 from calibre.ebooks.epub.cfi.parse import parser, cfi_sort_key, decode_cfi
-from polyglot.builtins import iteritems, unicode_type
+from polyglot.builtins import iteritems
 
 
 class Tests(unittest.TestCase):
@@ -60,7 +58,7 @@ class Tests(unittest.TestCase):
             if after is not None:
                 ta['after'] = after
             if params:
-                ta['params'] = {unicode_type(k):(v,) if isinstance(v, unicode_type) else v for k, v in iteritems(params)}
+                ta['params'] = {str(k):(v,) if isinstance(v, str) else v for k, v in iteritems(params)}
             if ta:
                 step['text_assertion'] = ta
             return ans
@@ -87,6 +85,9 @@ class Tests(unittest.TestCase):
 
             # Test parsing of text assertions
             ('/1:3[aa^,b]', a('aa,b'), ''),
+            ('/1:3[aa-b]', a('aa-b'), ''),
+            ('/1:3[aa^-b]', a('aa-b'), ''),
+            ('/1:3[aa-^--b]', a('aa---b'), ''),
             ('/1:3[aa^,b,c1]', a('aa,b', 'c1'), ''),
             ('/1:3[,aa^,b]', a(after='aa,b'), ''),
             ('/1:3[;s=a]', a(s='a'), ''),
@@ -124,7 +125,7 @@ class Tests(unittest.TestCase):
             test(cfi, body)
 
         for i in range(len(body)):
-            test('/4/{}'.format((i + 1)*2), body[i])
+            test(f'/4/{(i + 1)*2}', body[i])
 
         p = body[4]
         test('/4/999[para05]', p)

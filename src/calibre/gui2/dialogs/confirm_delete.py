@@ -20,13 +20,13 @@ class Dialog(QDialog):
                  title=None, confirm_msg=None, show_cancel_button=True, extra_button=None):
         QDialog.__init__(self, parent)
         self.setWindowTitle(title or _("Are you sure?"))
-        self.setWindowIcon(QIcon(I(icon)))
+        self.setWindowIcon(QIcon.ic(icon))
         self.l = l = QVBoxLayout(self)
         self.h = h = QHBoxLayout()
         l.addLayout(h)
 
         self.icon_widget = Icon(self)
-        self.icon_widget.set_icon(QIcon(I(icon)))
+        self.icon_widget.set_icon(QIcon.ic(icon))
 
         self.msg = m = QLabel(self)
         m.setOpenExternalLinks(True)
@@ -78,7 +78,7 @@ def confirm(msg, name, parent=None, pixmap='dialog_warning.png', title=None,
         return True
     d = Dialog(msg, name, parent, config_set=config_set, icon=pixmap, extra_button=extra_button,
                title=title, confirm_msg=confirm_msg, show_cancel_button=show_cancel_button)
-    ret = d.exec_() == QDialog.DialogCode.Accepted
+    ret = d.exec() == QDialog.DialogCode.Accepted
     if extra_button:
         ret = ret, d.extra_button_clicked
     return ret

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -23,7 +22,6 @@ from calibre.gui2.convert.structure_detection import StructureDetectionWidget
 from calibre.gui2.convert.toc import TOCWidget
 from calibre.customize.ui import input_format_plugins, output_format_plugins
 from calibre.gui2.convert import config_widget_for_input_plugin
-from polyglot.builtins import unicode_type
 
 
 class Model(QStringListModel):
@@ -37,7 +35,7 @@ class Model(QStringListModel):
         if role == Qt.ItemDataRole.DecorationRole:
             w = self.widgets[index.row()]
             if w.ICON:
-                return (QIcon(w.ICON))
+                return QIcon.ic(w.ICON)
         return QStringListModel.data(self, index, role)
 
 
@@ -93,7 +91,7 @@ class Base(ConfigWidgetBase):
                         if rec.option == name:
                             ans = getattr(rec, 'help', None)
                             if ans is not None:
-                                return ans.replace('%default', unicode_type(rec.recommended_value))
+                                return ans.replace('%default', str(rec.recommended_value))
             return cls(self, self.plumber.get_option_by_name, hfunc, None, None)
 
         self.load_conversion_widgets()
@@ -103,6 +101,7 @@ class Base(ConfigWidgetBase):
 
         for w in widgets:
             w.changed_signal.connect(self.changed_signal)
+            w.layout().setContentsMargins(6, 6, 6, 6)
             sa = QScrollArea(self)
             sa.setWidget(w)
             sa.setWidgetResizable(True)

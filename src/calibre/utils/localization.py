@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -9,7 +8,7 @@ __docformat__ = 'restructuredtext en'
 import os, locale, re, io
 from gettext import GNUTranslations, NullTranslations
 
-from polyglot.builtins import iteritems, unicode_type
+from polyglot.builtins import iteritems
 
 _available_translations = None
 
@@ -138,7 +137,7 @@ def get_all_translators():
 def get_single_translator(mpath, which='messages'):
     from zipfile import ZipFile
     with ZipFile(P('localization/locales.zip', allow_user_override=False), 'r') as zf:
-        path = '{}/{}.mo'.format(mpath, which)
+        path = f'{mpath}/{which}.mo'
         data = zf.read(path)
         buf = io.BytesIO(data)
         try:
@@ -342,6 +341,7 @@ _extra_lang_codes = {
         'es_CO' : _('Spanish (Colombia)'),
         'de_AT' : _('German (Austria)'),
         'fr_BE' : _('French (Belgium)'),
+        'fr_CA' : _('French (Canadian)'),
         'nl'    : _('Dutch (Netherlands)'),
         'nl_BE' : _('Dutch (Belgium)'),
         'und'   : _('Unknown')
@@ -430,7 +430,7 @@ def calibre_langcode_to_name(lc, localize=True):
 def canonicalize_lang(raw):
     if not raw:
         return None
-    if not isinstance(raw, unicode_type):
+    if not isinstance(raw, str):
         raw = raw.decode('utf-8', 'ignore')
     raw = raw.lower().strip()
     if not raw:
@@ -522,23 +522,30 @@ def user_manual_stats():
         import json
         try:
             stats = json.loads(P('user-manual-translation-stats.json', allow_user_override=False, data=True))
-        except EnvironmentError:
+        except OSError:
             stats = {}
         user_manual_stats.stats = stats
     return stats
 
 
-def localize_user_manual_link(url):
+def lang_code_for_user_manual():
     lc = lang_as_iso639_1(get_lang())
     if lc == 'en':
-        return url
+        return ''
     stats = user_manual_stats()
     if stats.get(lc, 0) < 0.3:
+        return ''
+    return lc
+
+
+def localize_user_manual_link(url):
+    lc = lang_code_for_user_manual()
+    if not lc:
         return url
     from polyglot.urllib import urlparse, urlunparse
     parts = urlparse(url)
     path = re.sub(r'/generated/[a-z]+/', '/generated/%s/' % lc, parts.path or '')
-    path = '/%s%s' % (lc, path)
+    path = f'/{lc}{path}'
     parts = list(parts)
     parts[2] = path
     return urlunparse(parts)
@@ -549,7 +556,7 @@ def website_languages():
     if stats is None:
         try:
             stats = frozenset(P('localization/website-languages.txt', allow_user_override=False, data=True).decode('utf-8').split())
-        except EnvironmentError:
+        except OSError:
             stats = frozenset()
         website_languages.stats = stats
     return stats
@@ -562,7 +569,7 @@ def localize_website_link(url):
         return url
     from polyglot.urllib import urlparse, urlunparse
     parts = urlparse(url)
-    path = '/{}{}'.format(lc, parts.path)
+    path = f'/{lc}{parts.path}'
     parts = list(parts)
     parts[2] = path
     return urlunparse(parts)

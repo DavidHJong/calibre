@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -12,7 +11,7 @@ from lxml.etree import tostring
 
 from calibre.ebooks.metadata.toc import TOC
 from calibre.ebooks.oeb.polish.toc import elem_to_toc_text
-from polyglot.builtins import iteritems, range
+from polyglot.builtins import iteritems
 
 
 def from_headings(body, log, namespace, num_levels=3):

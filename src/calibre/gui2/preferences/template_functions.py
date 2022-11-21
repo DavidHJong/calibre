@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 # License: GPLv3 Copyright: 2010, Kovid Goyal <kovid at kovidgoyal.net>
 
 import copy
@@ -7,16 +6,17 @@ import json
 import traceback
 from qt.core import QDialog, QDialogButtonBox
 
-from calibre.gui2 import error_dialog, question_dialog, warning_dialog
+from calibre.gui2 import error_dialog, gprefs, question_dialog, warning_dialog
 from calibre.gui2.dialogs.template_dialog import TemplateDialog
 from calibre.gui2.preferences import AbortInitialize, ConfigWidgetBase, test_widget
 from calibre.gui2.preferences.template_functions_ui import Ui_Form
 from calibre.gui2.widgets import PythonHighlighter
 from calibre.utils.formatter_functions import (
     compile_user_function, compile_user_template_functions, formatter_functions,
-    function_pref_is_python, function_pref_name, load_user_template_functions
+    function_object_type, function_pref_name, load_user_template_functions,
+    StoredObjectType
 )
-from polyglot.builtins import iteritems, native_string_type, unicode_type
+from polyglot.builtins import iteritems
 
 
 class ConfigWidget(ConfigWidgetBase, Ui_Form):
@@ -49,9 +49,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         <li><b>your parameters</b>: you must supply one or more formal
         parameters. The number must match the arg count box, unless arg count is
         -1 (variable number or arguments), in which case the last argument must
-        be *args. At least one argument is required, and is usually the value of
-        the field being operated upon. Note that when writing in basic template
-        mode, the user does not provide this first argument. Instead it is
+        be *args. Note that when a function is called in basic template
+        mode at least one argument is always passed. It is
         supplied by the formatter.</li>
         </ul></p>
         <p>
@@ -76,19 +75,24 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         </p>
         ''')
         self.textBrowser.setHtml(help_text)
-        self.textBrowser_showing = True
         self.textBrowser.adjustSize()
         self.show_hide_help_button.clicked.connect(self.show_hide_help)
+        self.textBrowser_showing = not gprefs.get('template_functions_prefs_tf_show_help', True)
+        self.textBrowser_height = self.textBrowser.height()
+        self.show_hide_help()
+
         help_text = _('''
         <p>
         Here you can create, edit (replace), and delete stored templates used
         in template processing. You use a stored template in another template as
         if it were a template function, for example 'some_name(arg1, arg2...)'.</p>
 
-        <p>Stored templates must use General Program Mode -- they must begin with
-        the text '{0}'. You retrieve arguments passed to a stored template using
-        the '{1}()' template function, as in '{1}(var1, var2, ...)'. The passed
-        arguments are copied to the named variables.</p>
+        <p>Stored templates must use either General Program Mode -- they must
+        either begin with the text '{0}' or be {1}. You retrieve arguments
+        passed to a GPM stored template using the '{2}()' template function, as
+        in '{2}(var1, var2, ...)'. The passed arguments are copied to the named
+        variables. Arguments passed to a Python template are in the '{2}'
+        parameter. Arguments are always strings.</p>
 
         <p>For example, this stored template checks if any items are in a
         list, returning '1' if any are found and '' if not.</p>
@@ -110,14 +114,16 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         See the template language tutorial for more information.</p>
         </p>
         ''')
-        self.st_textBrowser.setHtml(help_text.format('program:', 'arguments'))
-        self.st_textBrowser_showing = True
+        self.st_textBrowser.setHtml(help_text.format('program:', 'python templates', 'arguments'))
         self.st_textBrowser.adjustSize()
         self.st_show_hide_help_button.clicked.connect(self.st_show_hide_help)
+        self.st_textBrowser_height = self.st_textBrowser.height()
+        self.st_textBrowser_showing = not gprefs.get('template_functions_prefs_st_show_help', True)
+        self.st_show_hide_help()
 
     def st_show_hide_help(self):
+        gprefs['template_functions_prefs_st_show_help'] = not self.st_textBrowser_showing
         if self.st_textBrowser_showing:
-            self.st_textBrowser_height = self.st_textBrowser.height()
             self.st_textBrowser.setMaximumHeight(self.st_show_hide_help_button.height())
             self.st_textBrowser_showing = False
             self.st_show_hide_help_button.setText(_('Show help'))
@@ -127,8 +133,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             self.st_show_hide_help_button.setText(_('Hide help'))
 
     def show_hide_help(self):
+        gprefs['template_functions_prefs_tf_show_help'] = not self.textBrowser_showing
         if self.textBrowser_showing:
-            self.textBrowser_height = self.textBrowser.height()
             self.textBrowser.setMaximumHeight(self.show_hide_help_button.height())
             self.textBrowser_showing = False
             self.show_hide_help_button.setText(_('Show help'))
@@ -145,15 +151,15 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             traceback.print_exc()
             self.builtin_source_dict = {}
 
-        self.funcs = dict((k,v) for k,v in formatter_functions().get_functions().items()
-                                if v.is_python)
+        self.funcs = {k:v for k,v in formatter_functions().get_functions().items()
+                                if v.object_type is StoredObjectType.PythonFunction}
 
         self.builtins = formatter_functions().get_builtins_and_aliases()
 
         self.st_funcs = {}
         try:
             for v in self.db.prefs.get('user_template_functions', []):
-                if not function_pref_is_python(v):
+                if function_object_type(v) is not StoredObjectType.PythonFunction:
                     self.st_funcs.update({function_pref_name(v):compile_user_function(*v)})
         except:
             if question_dialog(self, _('Template functions'),
@@ -164,8 +170,10 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                 self.db.prefs['user_template_functions'] = []
             raise AbortInitialize()
 
+        self.show_only_user_defined.setChecked(True)
+        self.show_only_user_defined.stateChanged.connect(self.show_only_user_defined_changed)
         self.build_function_names_box()
-        self.function_name.currentIndexChanged[native_string_type].connect(self.function_index_changed)
+        self.function_name.currentIndexChanged.connect(self.function_index_changed)
         self.function_name.editTextChanged.connect(self.function_name_edited)
         self.argument_count.valueChanged.connect(self.enable_replace_button)
         self.documentation.textChanged.connect(self.enable_replace_button)
@@ -177,13 +185,13 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.replace_button.setEnabled(False)
         self.clear_button.clicked.connect(self.clear_button_clicked)
         self.replace_button.clicked.connect(self.replace_button_clicked)
-        self.program.setTabStopWidth(20)
+        self.program.setTabStopDistance(20)
         self.highlighter = PythonHighlighter(self.program.document())
 
         self.te_textbox = self.template_editor.textbox
         self.te_name = self.template_editor.template_name
         self.st_build_function_names_box()
-        self.te_name.currentIndexChanged[native_string_type].connect(self.st_function_index_changed)
+        self.te_name.currentIndexChanged.connect(self.st_function_index_changed)
         self.te_name.editTextChanged.connect(self.st_template_name_edited)
         self.st_create_button.clicked.connect(self.st_create_button_clicked)
         self.st_delete_button.clicked.connect(self.st_delete_button_clicked)
@@ -214,9 +222,12 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                 if row.isValid():
                     self.mi.append(db.new_api.get_proxy_metadata(db.data.index_to_id(row.row())))
 
-            self.template_editor.set_mi(self.mi[0], self.fm)
+            self.template_editor.set_mi(self.mi, self.fm)
 
     # Python function tab
+
+    def show_only_user_defined_changed(self, state):
+        self.build_function_names_box()
 
     def enable_replace_button(self):
         self.replace_button.setEnabled(self.delete_button.isEnabled())
@@ -229,23 +240,35 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.create_button.setEnabled(False)
         self.delete_button.setEnabled(False)
 
+    def function_type_string(self, name):
+        if name in self.builtins:
+            return ' -- ' + _('Built-in function')
+        else:
+            return ' -- ' + _('User function')
+
     def build_function_names_box(self, scroll_to=''):
         self.function_name.blockSignals(True)
-        func_names = sorted(self.funcs)
+        if self.show_only_user_defined.isChecked():
+            func_names = sorted([k for k in self.funcs if k not in self.builtins])
+        else:
+            func_names = sorted(self.funcs)
         self.function_name.clear()
         self.function_name.addItem('')
-        self.function_name.addItems(func_names)
+        scroll_to_index = 0
+        for idx,n in enumerate(func_names):
+            self.function_name.addItem(n + self.function_type_string(n))
+            self.function_name.setItemData(idx+1, n)
+            if scroll_to and n == scroll_to:
+                scroll_to_index = idx+1
         self.function_name.setCurrentIndex(0)
         self.function_name.blockSignals(False)
-        if scroll_to:
-            idx = self.function_name.findText(scroll_to)
-            if idx >= 0:
-                self.function_name.setCurrentIndex(idx)
-                if scroll_to not in self.builtins:
-                    self.delete_button.setEnabled(True)
+        if scroll_to_index:
+            self.function_name.setCurrentIndex(scroll_to_index)
+            if scroll_to not in self.builtins:
+                self.delete_button.setEnabled(True)
 
     def delete_button_clicked(self):
-        name = unicode_type(self.function_name.currentText())
+        name = str(self.function_name.itemData(self.function_name.currentIndex()))
         if name in self.builtins:
             error_dialog(self.gui, _('Template functions'),
                          _('You cannot delete a built-in function'), show=True)
@@ -260,32 +283,56 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             error_dialog(self.gui, _('Template functions'),
                          _('Function not defined'), show=True)
 
-    def create_button_clicked(self, use_name=None):
-        self.changed_signal.emit()
-        name = use_name if use_name else unicode_type(self.function_name.currentText())
-        if name in self.funcs:
+    def check_errors_before_save(self, name, for_replace=False):
+        # Returns True if there is an error
+        if not name:
+            error_dialog(self.gui, _('Template functions'),
+                         _('Name cannot be empty'), show=True)
+            return True
+        if not for_replace and name in self.funcs:
             error_dialog(self.gui, _('Template functions'),
                          _('Name %s already used')%(name,), show=True)
-            return
+            return True
         if name in {function_pref_name(v) for v in
                         self.db.prefs.get('user_template_functions', [])
-                        if not function_pref_is_python(v)}:
+                        if function_object_type(v) is not StoredObjectType.PythonFunction}:
             error_dialog(self.gui, _('Template functions'),
                          _('The name {} is already used for stored template').format(name), show=True)
-            return
+            return True
         if self.argument_count.value() == 0:
-            box = warning_dialog(self.gui, _('Template functions'),
-                         _('Argument count should be -1 or greater than zero. '
-                           'Setting it to zero means that this function cannot '
-                           'be used in single function mode.'), det_msg='',
-                         show=False, show_copy_button=False)
-            box.bb.setStandardButtons(box.bb.standardButtons() | QDialogButtonBox.StandardButton.Cancel)
-            box.det_msg_toggle.setVisible(False)
-            if not box.exec_():
-                return
+            if not question_dialog(self.gui, _('Template functions'),
+                         _('Setting argument count to to zero means that this '
+                           'function cannot be used in single function mode. '
+                           'Is this OK?'),
+                         det_msg='',
+                         show_copy_button=False,
+                         default_yes=False,
+                         skip_dialog_name='template_functions_zero_args_warning',
+                         skip_dialog_msg='Ask this question again',
+                         yes_text=_('Save the function'),
+                         no_text=_('Cancel the save')):
+                print('cancelled')
+                return True
         try:
-            prog = unicode_type(self.program.toPlainText())
-            cls = compile_user_function(name, unicode_type(self.documentation.toPlainText()),
+            prog = str(self.program.toPlainText())
+            compile_user_function(name, str(self.documentation.toPlainText()),
+                                        self.argument_count.value(), prog)
+        except:
+            error_dialog(self.gui, _('Template functions'),
+                         _('Exception while compiling function'), show=True,
+                         det_msg=traceback.format_exc())
+            return True
+        return False
+
+    def create_button_clicked(self, use_name=None, need_error_checks=True):
+        name = use_name if use_name else str(self.function_name.currentText())
+        name = name.split(' -- ')[0]
+        if need_error_checks and self.check_errors_before_save(name, for_replace=False):
+            return
+        self.changed_signal.emit()
+        try:
+            prog = str(self.program.toPlainText())
+            cls = compile_user_function(name, str(self.documentation.toPlainText()),
                                         self.argument_count.value(), prog)
             self.funcs[name] = cls
             self.build_function_names_box(scroll_to=name)
@@ -295,14 +342,20 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                          det_msg=traceback.format_exc())
 
     def function_name_edited(self, txt):
+        txt = txt.split(' -- ')[0]
+        if txt not in self.funcs:
+            self.function_name.blockSignals(True)
+            self.function_name.setEditText(txt)
+            self.function_name.blockSignals(False)
         self.documentation.setReadOnly(False)
         self.argument_count.setReadOnly(False)
         self.create_button.setEnabled(True)
         self.replace_button.setEnabled(False)
+        self.delete_button.setEnabled(False)
         self.program.setReadOnly(False)
 
-    def function_index_changed(self, txt):
-        txt = unicode_type(txt)
+    def function_index_changed(self, idx):
+        txt = self.function_name.itemData(idx)
         self.create_button.setEnabled(False)
         if not txt:
             self.argument_count.clear()
@@ -331,9 +384,11 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.replace_button.setEnabled(False)
 
     def replace_button_clicked(self):
-        name = unicode_type(self.function_name.currentText())
+        name = str(self.function_name.itemData(self.function_name.currentIndex()))
+        if self.check_errors_before_save(name, for_replace=True):
+            return
         self.delete_button_clicked()
-        self.create_button_clicked(use_name=name)
+        self.create_button_clicked(use_name=name, need_error_checks=False)
 
     def refresh_gui(self, gui):
         pass
@@ -350,7 +405,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                    mi=self.mi, fm=self.fm, text_is_placeholder=self.st_first_time,
                    all_functions=all_funcs)
             t.setWindowTitle(_('Template tester'))
-            if t.exec_() == QDialog.DialogCode.Accepted:
+            if t.exec() == QDialog.DialogCode.Accepted:
                 self.st_previous_text = t.rule[1]
                 self.st_first_time = False
         else:
@@ -379,7 +434,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                 self.te_name.setCurrentIndex(idx)
 
     def st_delete_button_clicked(self):
-        name = unicode_type(self.te_name.currentText())
+        name = str(self.te_name.currentText())
         if name in self.st_funcs:
             del self.st_funcs[name]
             self.changed_signal.emit()
@@ -394,18 +449,18 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
     def st_create_button_clicked(self, use_name=None):
         self.changed_signal.emit()
-        name = use_name if use_name else unicode_type(self.te_name.currentText())
+        name = use_name if use_name else str(self.te_name.currentText())
         for k,v in formatter_functions().get_functions().items():
-            if k == name and v.is_python:
+            if k == name and v.object_type is StoredObjectType.PythonFunction:
                 error_dialog(self.gui, _('Stored templates'),
-                         _('The name {} is already used for template function').format(name), show=True)
+                         _('The name {} is already used by a template function').format(name), show=True)
         try:
-            prog = unicode_type(self.te_textbox.toPlainText())
-            if not prog.startswith('program:'):
+            prog = str(self.te_textbox.toPlainText())
+            if not prog.startswith(('program:', 'python:')):
                 error_dialog(self.gui, _('Stored templates'),
-                         _('The stored template must begin with "program:"'), show=True)
+                     _("The stored template must begin with '{0}' or '{1}'").format('program:', 'python:'), show=True)
 
-            cls = compile_user_function(name, unicode_type(self.template_editor.new_doc.toPlainText()),
+            cls = compile_user_function(name, str(self.template_editor.new_doc.toPlainText()),
                                         0, prog)
             self.st_funcs[name] = cls
             self.st_build_function_names_box(scroll_to=name)
@@ -422,8 +477,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.st_test_template_button.setEnabled(b)
         self.te_textbox.setReadOnly(False)
 
-    def st_function_index_changed(self, txt):
-        txt = unicode_type(txt)
+    def st_function_index_changed(self, idx):
+        txt = self.te_name.currentText()
         if self.st_current_program_name:
             if self.st_current_program_text != self.te_textbox.toPlainText():
                 box = warning_dialog(self.gui, _('Template functions'),
@@ -432,7 +487,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                 box.bb.setStandardButtons(box.bb.standardButtons() |
                                           QDialogButtonBox.StandardButton.Cancel)
                 box.det_msg_toggle.setVisible(False)
-                if not box.exec_():
+                if not box.exec():
                     self.te_name.blockSignals(True)
                     dex = self.te_name.findText(self.st_current_program_name)
                     self.te_name.setCurrentIndex(dex)
@@ -451,7 +506,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.st_template_name_edited(txt)
 
     def st_replace_button_clicked(self):
-        name = unicode_type(self.te_name.currentText())
+        name = str(self.te_name.currentText())
         self.st_current_program_text = self.te_textbox.toPlainText()
         self.st_delete_button_clicked()
         self.st_create_button_clicked(use_name=name)
@@ -467,12 +522,17 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         funcs = compile_user_template_functions(pref_value)
         self.db.new_api.set_user_template_functions(funcs)
         self.gui.library_view.model().refresh()
+        self.gui.library_view.model().research()
         load_user_template_functions(self.db.library_id, [], funcs)
         return False
 
 
 if __name__ == '__main__':
-    from calibre import Application
+    from calibre.gui2 import Application
+    from calibre.gui2.ui import get_gui
+    from calibre.library import db
     app = Application([])
+    app.current_db = db()
+    get_gui.ans = app
     test_widget('Advanced', 'TemplateFunctions')
     del app

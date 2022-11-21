@@ -41,7 +41,7 @@ You can access the viewer controls by either:
 The viewer has two modes, "paged" and "flow". In paged mode the book content
 is presented as pages, similar to a paper book. In flow mode the text is
 presented continuously, like in a web browser. You can switch between them
-using the viewer Preferences under :guilabel:`Page layout` or by pressing the
+using the viewer :guilabel:`Preferences` under :guilabel:`Page layout` or by pressing the
 :kbd:`Ctrl+M` key.
 
 
@@ -62,7 +62,7 @@ Table of Contents
 ^^^^^^^^^^^^^^^^^^^^
 
 If the book you are reading defines a Table of Contents, you can access it by
-pressing the :guilabel:`Table of Contents` button.  This will bring up a list
+pressing the :guilabel:`Table of Contents` button. This will bring up a list
 of sections in the book. You can click on any of them to jump to that portion
 of the book.
 
@@ -159,6 +159,38 @@ behavior`.
    make all voices visible
    <https://www.mobileread.com/forums/showpost.php?p=4084051&postcount=108>`_.
 
+Searching the text
+--------------------------
+
+The viewer has very powerful search capabilities. Press the :kbd:`Ctrl+F` key
+or access the viewer controls and click search. The simplest form of searching is
+to just search for whatever text you enter in the text box. The different forms
+of searching are chosen by the search mode box below the search input.
+Available modes are:
+
+#. :guilabel:`Contains` - The simplest default mode. The text entered in the search box
+   is searched for anywhere. All punctuation, accents and spaces are ignored.
+   For example, the search: ``Pena`` will match all of the following:
+   ``penal, pen a, pen.a and Peña``. If you select the :guilabel:`Case sensitive` box
+   then accents, spaces and punctuation are no longer ignored.
+
+#. :guilabel:`Whole words` - Searches for whole words. So for example, the search
+   ``pena`` will match the word ``Peña`` but not the word ``Penal``. As with
+   :guilabel:`Contains` searches above, accents and punctuation are ignored
+   unless the :guilabel:`Case sensitive` box is checked.
+
+#. :guilabel:`Nearby words` - Searches for whole words that are near each other. So for example,
+   the search ``calibre cool`` will match places where the words ``calibre``
+   and ``cool`` occur within sixty characters of each other. To change the
+   number of characters add the new number to the end of the list of words. For
+   instance, ``calibre cool awesome 120`` will match places where the three
+   words occur within 120 characters of each other. Note that punctuation and
+   accents are *not* ignored for these searches.
+
+#. :guilabel:`Regex` - Interprets the search text as a *regular expression*.
+   To learn more about using regular expressions, see :doc:`the tutorial
+   <regexp>`.
+
 
 Following links using only the keyboard
 -----------------------------------------------
@@ -234,3 +266,30 @@ viewer preferences to force the viewer to break up lines of text in
 :code:`<pre>` tags::
 
     code, pre { white-space: pre-wrap }
+
+
+Designing your book to work well with the calibre viewer
+------------------------------------------------------------
+
+The calibre viewer will set the ``is-calibre-viewer`` class on the root
+element. So you can write CSS rules that apply only for it. Additionally,
+the viewer will set the following classes on the ``body`` element:
+
+``body.calibre-viewer-dark-colors``
+    Set when using a dark color scheme
+
+``body.calibre-viewer-light-colors``
+    Set when using a light color scheme
+
+``body.calibre-viewer-paginated``
+    Set when in paged mode
+
+``body.calibre-viewer-scrolling``
+    Set when in flow (non-paginated) mode
+
+Finally, you can use the calibre color scheme colors via `CSS variables
+<https://developer.mozilla.org/en-US/docs/Web/CSS/Using_CSS_custom_properties>`_.
+The calibre viewer defines the following variables:
+``--calibre-viewer-background-color``, ``--calibre-viewer-foreground-color``
+and optionally ``--calibre-viewer-link-color`` in color themes that define
+a link color.

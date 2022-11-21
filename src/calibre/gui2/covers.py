@@ -1,23 +1,27 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
+# License: GPLv3 Copyright: 2014, Kovid Goyal <kovid at kovidgoyal.net>
 
-
-__license__ = 'GPL v3'
-__copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
-
+import os
 from collections import OrderedDict
-
+from contextlib import suppress
+from copy import deepcopy
 from qt.core import (
-    QWidget, QHBoxLayout, QTabWidget, QLabel, QSizePolicy, QSize, QFormLayout,
-    QSpinBox, pyqtSignal, QPixmap, QDialog, QVBoxLayout, QDialogButtonBox,
-    QListWidget, QListWidgetItem, Qt, QGridLayout, QPushButton, QIcon, QApplication,
-    QColorDialog, QToolButton, QLineEdit, QColor, QFrame, QTimer, QCheckBox)
+    QCheckBox, QColor, QColorDialog, QDialog, QDialogButtonBox,
+    QFormLayout, QFrame, QGridLayout, QHBoxLayout, QIcon, QInputDialog, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMenu, QPixmap, QPushButton, QSize,
+    QSizePolicy, QSpinBox, Qt, QTabWidget, QTimer, QToolButton, QVBoxLayout, QWidget,
+    pyqtSignal
+)
 
-from calibre.ebooks.covers import all_styles, cprefs, generate_cover, override_prefs, default_color_themes
-from calibre.gui2 import gprefs, error_dialog
+from calibre.constants import config_dir
+from calibre.ebooks.covers import (
+    all_styles, cprefs, default_color_themes, generate_cover, override_prefs
+)
+from calibre.gui2 import error_dialog, gprefs
 from calibre.gui2.font_family_chooser import FontFamilyChooser
 from calibre.utils.date import now
-from calibre.utils.icu import sort_key
+from calibre.utils.filenames import make_long_path_useable
+from calibre.utils.icu import primary_sort_key, sort_key
 from polyglot.builtins import iteritems, itervalues
 
 
@@ -139,13 +143,13 @@ class CoverSettingsWidget(QWidget):
         self.colors_list = cl = QListWidget(cp)
         l.addWidget(cl, 1, 0, 1, -1)
         self.colors_map = OrderedDict()
-        self.ncs = ncs = QPushButton(QIcon(I('plus.png')), _('&New color scheme'), cp)
+        self.ncs = ncs = QPushButton(QIcon.ic('plus.png'), _('&New color scheme'), cp)
         ncs.clicked.connect(self.create_color_scheme)
         l.addWidget(ncs)
-        self.ecs = ecs = QPushButton(QIcon(I('format-fill-color.png')), _('&Edit color scheme'), cp)
+        self.ecs = ecs = QPushButton(QIcon.ic('format-fill-color.png'), _('&Edit color scheme'), cp)
         ecs.clicked.connect(self.edit_color_scheme)
         l.addWidget(ecs, l.rowCount()-1, 1)
-        self.rcs = rcs = QPushButton(QIcon(I('minus.png')), _('&Remove color scheme'), cp)
+        self.rcs = rcs = QPushButton(QIcon.ic('minus.png'), _('&Remove color scheme'), cp)
         rcs.clicked.connect(self.remove_color_scheme)
         l.addWidget(rcs, l.rowCount()-1, 2)
 
@@ -331,7 +335,7 @@ class CoverSettingsWidget(QWidget):
 
     @property
     def current_colors(self):
-        for name, li in iteritems(self.colors_map):
+        for name, li in self.colors_map.items():
             if li.isSelected():
                 return name
 
@@ -393,9 +397,12 @@ class CoverSettingsWidget(QWidget):
                 self.colors_list.item(i).setSelected(False)
 
     def create_color_scheme(self):
-        scheme = self.colors_map[self.current_colors].data(Qt.ItemDataRole.UserRole)
+        cs = self.current_colors
+        if cs is None:
+            cs = tuple(self.colors_map.keys())[0]
+        scheme = self.colors_map[cs].data(Qt.ItemDataRole.UserRole)
         d = CreateColorScheme('#' + _('My Color Scheme'), scheme, set(self.colors_map), parent=self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             name, scheme = d.data
             li = QListWidgetItem(name)
             li.setData(Qt.ItemDataRole.UserRole, scheme), li.setFlags(li.flags() | Qt.ItemFlag.ItemIsUserCheckable), li.setCheckState(Qt.CheckState.Checked)
@@ -411,7 +418,7 @@ class CoverSettingsWidget(QWidget):
                 ' color scheme instead.'), show=True)
         li = self.colors_map[cs]
         d = CreateColorScheme(cs, li.data(Qt.ItemDataRole.UserRole), set(self.colors_map), edit_scheme=True, parent=self)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             name, scheme = d.data
             li.setText(name)
             li.setData(Qt.ItemDataRole.UserRole, scheme)
@@ -449,7 +456,7 @@ class CoverSettingsWidget(QWidget):
         attr = which + '_template'
         templ = getattr(self, attr).text()
         d = TemplateDialog(self, templ, mi=self.mi, fm=field_metadata)
-        if d.exec_() == QDialog.DialogCode.Accepted:
+        if d.exec() == QDialog.DialogCode.Accepted:
             templ = d.rule[1]
             getattr(self, attr).setText(templ)
             self.emit_changed()
@@ -504,6 +511,20 @@ class CoverSettingsWidget(QWidget):
             for k, v in iteritems(self.current_prefs):
                 self.original_prefs[k] = v
 
+    @property
+    def serialized_prefs(self) -> bytes:
+        from calibre.utils.serialize import json_dumps
+        c = dict(deepcopy(self.original_prefs))
+        c.update(self.current_prefs)
+        return json_dumps(c, indent=2)
+
+    @serialized_prefs.setter
+    def serialized_prefs(self, val: bytes) -> None:
+        from calibre.utils.serialize import json_loads
+        prefs = json_loads(val)
+        self.apply_prefs(prefs)
+        self.update_preview()
+
 
 class CoverSettingsDialog(QDialog):
 
@@ -522,24 +543,57 @@ class CoverSettingsDialog(QDialog):
         bb.accepted.connect(self.accept), bb.rejected.connect(self.reject)
         bb.b = b = bb.addButton(_('Restore &defaults'), QDialogButtonBox.ButtonRole.ActionRole)
         b.clicked.connect(self.restore_defaults)
+        bb.ld = b = bb.addButton(_('&Save'), QDialogButtonBox.ButtonRole.ActionRole)
+        b.clicked.connect(self.export_settings)
+        b.setToolTip(_('Save the current cover generation settings for later re-use'))
+        bb.sd = b = bb.addButton(_('&Load'), QDialogButtonBox.ButtonRole.ActionRole)
+        self.load_menu = QMenu(b)
+        self.load_menu.aboutToShow.connect(self.populate_load_menu)
+        b.setMenu(self.load_menu)
+        b.setToolTip(_('Load previously saved cover generation settings'))
         ss.setToolTip('<p>' + _(
             'Save the current settings as the settings to use always instead of just this time. Remember that'
             ' for styles and colors the actual style or color used is chosen at random from'
             ' the list of checked styles/colors.'))
 
         self.resize(self.sizeHint())
-        geom = gprefs.get('cover_settings_dialog_geom', None)
-        if geom is not None:
-            QApplication.instance().safe_restore_geometry(self, geom)
+        self.restore_geometry(gprefs, 'cover_settings_dialog_geom')
         self.prefs_for_rendering = None
 
     def restore_defaults(self):
         self.settings.restore_defaults()
         self.settings.save_as_prefs()
 
+    def export_settings(self):
+        name, ok = QInputDialog.getText(self, _('Name for these settings'), _('Theme name:'), text=_('My cover style'))
+        if ok:
+            base = os.path.join(config_dir, 'cover-generation-themes')
+            os.makedirs(base, exist_ok=True)
+            path = make_long_path_useable(os.path.join(base, name + '.json'))
+            raw = self.settings.serialized_prefs
+            with open(path, 'wb') as f:
+                f.write(raw)
+
+    def populate_load_menu(self):
+        m = self.load_menu
+        m.clear()
+        base = os.path.join(config_dir, 'cover-generation-themes')
+        entries = ()
+        with suppress(FileNotFoundError):
+            entries = sorted((x.rpartition('.')[0] for x in os.listdir(base) if x.endswith('.json')), key=primary_sort_key)
+        for name in entries:
+            m.addAction(name, self.import_settings)
+
+    def import_settings(self):
+        fname = self.sender().text() + '.json'
+        base = os.path.join(config_dir, 'cover-generation-themes')
+        with open(os.path.join(base, fname), 'rb') as f:
+            raw = f.read()
+        self.settings.serialized_prefs = raw
+
     def _save_settings(self):
         gprefs.set('cover_generation_save_settings_for_future', self.save_settings.isChecked())
-        gprefs.set('cover_settings_dialog_geom', bytearray(self.saveGeometry()))
+        self.save_geometry(gprefs, 'cover_settings_dialog_geom')
         self.settings.save_state()
 
     def accept(self):
@@ -559,6 +613,6 @@ if __name__ == '__main__':
     app = Application([])
     d = CoverSettingsDialog()
     d.show()
-    app.exec_()
+    app.exec()
     del d
     del app

@@ -1,5 +1,3 @@
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
@@ -17,7 +15,7 @@ class ChooseFormatDialog(QDialog):
     def __init__(self, window, msg, formats, show_open_with=False):
         QDialog.__init__(self, window)
         self.resize(507, 377)
-        self.setWindowIcon(QIcon(I("mimetypes/unknown.png")))
+        self.setWindowIcon(QIcon.ic("mimetypes/unknown.png"))
         self.setWindowTitle(_('Choose format'))
         self.l = l = QVBoxLayout(self)
         self.msg = QLabel(msg)
@@ -106,6 +104,6 @@ if __name__ == '__main__':
     from calibre.gui2 import Application
     app = Application([])
     d = ChooseFormatDialog(None, 'Testing choose format', ['epub', 'mobi', 'docx'], show_open_with=True)
-    d.exec_()
+    d.exec()
     print(d._format)
     del app

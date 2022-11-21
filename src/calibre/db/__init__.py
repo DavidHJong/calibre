@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -9,7 +8,15 @@ __docformat__ = 'restructuredtext en'
 SPOOL_SIZE = 30*1024*1024
 
 import numbers
-from polyglot.builtins import iteritems, range
+from polyglot.builtins import iteritems
+
+
+class FTSQueryError(ValueError):
+
+    def __init__(self, query, sql_statement, apsw_error):
+        ValueError.__init__(self, f'Failed to parse search query: {query} with error: {apsw_error}')
+        self.query = query
+        self.sql_statement = sql_statement
 
 
 def _get_next_series_num_for_list(series_indices, unwrap=True):
@@ -77,10 +84,10 @@ def get_data_as_dict(self, prefix=None, authors_as_string=False, ids=None, conve
         prefix = backend.library_path
     fdata = backend.custom_column_num_map
 
-    FIELDS = set(['title', 'sort', 'authors', 'author_sort', 'publisher',
+    FIELDS = {'title', 'sort', 'authors', 'author_sort', 'publisher',
         'rating', 'timestamp', 'size', 'tags', 'comments', 'series',
         'series_index', 'uuid', 'pubdate', 'last_modified', 'identifiers',
-        'languages']).union(set(fdata))
+        'languages'}.union(set(fdata))
     for x, data in iteritems(fdata):
         if data['datatype'] == 'series':
             FIELDS.add('%d_index'%x)

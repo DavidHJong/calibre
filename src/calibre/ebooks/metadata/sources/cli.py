@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -20,7 +19,6 @@ from calibre.ebooks.metadata.sources.base import create_log
 from calibre.ebooks.metadata.sources.identify import identify
 from calibre.ebooks.metadata.sources.covers import download_cover
 from calibre.ebooks.metadata.sources.update import patch_plugins
-from polyglot.builtins import unicode_type
 
 
 def option_parser():
@@ -90,8 +88,9 @@ def main(args=sys.argv):
     if opts.cover and results:
         cover = download_cover(log, title=opts.title, authors=authors,
                 identifiers=result.identifiers, timeout=int(opts.timeout))
-        if cover is None and not opts.opf:
-            prints('No cover found', file=sys.stderr)
+        if cover is None:
+            if not opts.opf:
+                prints('No cover found', file=sys.stderr)
         else:
             save_cover_data_to(cover[-1], opts.cover)
             result.cover = cf = opts.cover
@@ -103,7 +102,7 @@ def main(args=sys.argv):
         getattr(sys.stdout, 'buffer', sys.stdout).write(metadata_to_opf(result))
         print()
     else:
-        prints(unicode_type(result))
+        prints(str(result))
     if not opts.opf and opts.cover:
         prints('Cover               :', cf)
 

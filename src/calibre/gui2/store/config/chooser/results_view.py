@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2011, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -12,7 +9,6 @@ from qt.core import (Qt, QTreeView, QSize, QMenu)
 from calibre.customize.ui import store_plugins
 from calibre.gui2.metadata.single_download import RichTextDelegate
 from calibre.gui2.store.config.chooser.models import Matches, Delegate
-from polyglot.builtins import range
 
 
 class ResultsView(QTreeView):
@@ -50,7 +46,7 @@ class ResultsView(QTreeView):
         ca = menu.addAction(_('Configure...'), partial(self.configure_plugin, plugin))
         if not plugin.is_customizable():
             ca.setEnabled(False)
-        menu.exec_(event.globalPos())
+        menu.exec(event.globalPos())
 
     def configure_plugin(self, plugin):
         plugin.do_user_config(self)

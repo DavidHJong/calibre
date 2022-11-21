@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 '''
 Created on 13 Jan 2011
@@ -13,10 +12,13 @@ __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import inspect, re, traceback, numbers
-from datetime import datetime
+from contextlib import suppress
+from datetime import datetime, timedelta
+from enum import Enum, auto
+from functools import partial
 from math import trunc, floor, ceil, modf
 
-from calibre import human_readable, prints
+from calibre import human_readable, prints, prepare_string_for_xml
 from calibre.constants import DEBUG
 from calibre.ebooks.metadata import title_sort
 from calibre.utils.config import tweaks
@@ -24,10 +26,16 @@ from calibre.utils.titlecase import titlecase
 from calibre.utils.icu import capitalize, strcmp, sort_key
 from calibre.utils.date import parse_date, format_date, now, UNDEFINED_DATE
 from calibre.utils.localization import calibre_langcode_to_name, canonicalize_lang
-from polyglot.builtins import iteritems, itervalues, unicode_type
+from polyglot.builtins import iteritems, itervalues
 
 
-class FormatterFunctions(object):
+class StoredObjectType(Enum):
+    PythonFunction = auto()
+    StoredGPMTemplate = auto()
+    StoredPythonTemplate = auto()
+
+
+class FormatterFunctions:
 
     error_function_body = ('def evaluate(self, formatter, kwargs, mi, locals):\n'
                        '\treturn "' +
@@ -76,6 +84,8 @@ class FormatterFunctions(object):
                         # Change the body of the template function to one that will
                         # return an error message. Also change the arg count to
                         # -1 (variable) to avoid template compilation errors
+                        if DEBUG:
+                            print(f'attempt to replace formatter function {f.name} with a different body')
                         replace = True
                         func = [cls.name, '', -1, self.error_function_body.format(cls.name)]
                         cls = compile_user_function(*func)
@@ -120,26 +130,65 @@ def formatter_functions():
     return _ff
 
 
-class FormatterFunction(object):
+def only_in_gui_error(name):
+    raise ValueError(_('The function {} can be used only in the GUI').format(name))
+
+
+def get_database(mi, name):
+    proxy = mi.get('_proxy_metadata', None)
+    if proxy is None:
+        if name is not None:
+            only_in_gui_error(name)
+        return None
+    wr = proxy.get('_db', None)
+    if wr is None:
+        if name is not None:
+            raise ValueError(_('In function {}: The database has been closed').format(name))
+        return None
+    cache = wr()
+    if cache is None:
+        if name is not None:
+            raise ValueError(_('In function {}: The database has been closed').format(name))
+        return None
+    wr = getattr(cache, 'library_database_instance', None)
+    if wr is None:
+        if name is not None:
+            only_in_gui_error()
+        return None
+    db = wr()
+    if db is None:
+        if name is not None:
+            raise ValueError(_('In function {}: The database has been closed').format(name))
+        return None
+    return db
+
+
+class FormatterFunction:
 
     doc = _('No documentation provided')
     name = 'no name provided'
     category = 'Unknown'
     arg_count = 0
     aliases = []
-    is_python = True
+    object_type = StoredObjectType.PythonFunction
 
     def evaluate(self, formatter, kwargs, mi, locals, *args):
         raise NotImplementedError()
 
     def eval_(self, formatter, kwargs, mi, locals, *args):
         ret = self.evaluate(formatter, kwargs, mi, locals, *args)
-        if isinstance(ret, (bytes, unicode_type)):
+        if isinstance(ret, (bytes, str)):
             return ret
         if isinstance(ret, list):
             return ','.join(ret)
         if isinstance(ret, (numbers.Number, bool)):
-            return unicode_type(ret)
+            return str(ret)
+
+    def only_in_gui_error(self):
+        only_in_gui_error(self.name)
+
+    def get_database(self, mi):
+        return get_database(mi, self.name)
 
 
 class BuiltinFormatterFunction(FormatterFunction):
@@ -166,6 +215,27 @@ class BuiltinStrcmp(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals, x, y, lt, eq, gt):
         v = strcmp(x, y)
+        if v < 0:
+            return lt
+        if v == 0:
+            return eq
+        return gt
+
+
+class BuiltinStrcmpcase(BuiltinFormatterFunction):
+    name = 'strcmpcase'
+    arg_count = 5
+    category = 'Relational'
+    __doc__ = doc = _('strcmpcase(x, y, lt, eq, gt) -- does a case-sensitive comparison of x '
+            'and y as strings. Returns lt if x < y. Returns eq if x == y. '
+            'Otherwise returns gt.\n'
+            'Note: This is NOT the default behavior used by calibre, for example, in the '
+            'lexical comparison operators (==, >, <, etc.). This function could '
+            'cause unexpected results, preferably use strcmp() whenever possible.')
+
+    def evaluate(self, formatter, kwargs, mi, locals, x, y, lt, eq, gt):
+        from calibre.utils.icu import case_sensitive_strcmp as case_strcmp
+        v = case_strcmp(x, y)
         if v < 0:
             return lt
         if v == 0:
@@ -257,7 +327,7 @@ class BuiltinAdd(BuiltinFormatterFunction):
         for v in args:
             v = float(v if v and v != 'None' else 0)
             res += v
-        return unicode_type(res)
+        return str(res)
 
 
 class BuiltinSubtract(BuiltinFormatterFunction):
@@ -271,7 +341,7 @@ class BuiltinSubtract(BuiltinFormatterFunction):
     def evaluate(self, formatter, kwargs, mi, locals, x, y):
         x = float(x if x and x != 'None' else 0)
         y = float(y if y and y != 'None' else 0)
-        return unicode_type(x - y)
+        return str(x - y)
 
 
 class BuiltinMultiply(BuiltinFormatterFunction):
@@ -287,7 +357,7 @@ class BuiltinMultiply(BuiltinFormatterFunction):
         for v in args:
             v = float(v if v and v != 'None' else 0)
             res *= v
-        return unicode_type(res)
+        return str(res)
 
 
 class BuiltinDivide(BuiltinFormatterFunction):
@@ -301,7 +371,7 @@ class BuiltinDivide(BuiltinFormatterFunction):
     def evaluate(self, formatter, kwargs, mi, locals, x, y):
         x = float(x if x and x != 'None' else 0)
         y = float(y if y and y != 'None' else 0)
-        return unicode_type(x / y)
+        return str(x / y)
 
 
 class BuiltinCeiling(BuiltinFormatterFunction):
@@ -314,7 +384,7 @@ class BuiltinCeiling(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals, x):
         x = float(x if x and x != 'None' else 0)
-        return unicode_type(int(ceil(x)))
+        return str(int(ceil(x)))
 
 
 class BuiltinFloor(BuiltinFormatterFunction):
@@ -327,7 +397,7 @@ class BuiltinFloor(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals, x):
         x = float(x if x and x != 'None' else 0)
-        return unicode_type(int(floor(x)))
+        return str(int(floor(x)))
 
 
 class BuiltinRound(BuiltinFormatterFunction):
@@ -339,7 +409,7 @@ class BuiltinRound(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals, x):
         x = float(x if x and x != 'None' else 0)
-        return unicode_type(int(round(x)))
+        return str(int(round(x)))
 
 
 class BuiltinMod(BuiltinFormatterFunction):
@@ -352,7 +422,7 @@ class BuiltinMod(BuiltinFormatterFunction):
     def evaluate(self, formatter, kwargs, mi, locals, x, y):
         x = float(x if x and x != 'None' else 0)
         y = float(y if y and y != 'None' else 0)
-        return unicode_type(int(x % y))
+        return str(int(x % y))
 
 
 class BuiltinFractionalPart(BuiltinFormatterFunction):
@@ -365,7 +435,7 @@ class BuiltinFractionalPart(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals, x):
         x = float(x if x and x != 'None' else 0)
-        return unicode_type(modf(x)[0])
+        return str(modf(x)[0])
 
 
 class BuiltinTemplate(BuiltinFormatterFunction):
@@ -437,7 +507,7 @@ class BuiltinListSplit(BuiltinFormatterFunction):
         l = [v.strip() for v in list_val.split(sep)]
         res = ''
         for i,v in enumerate(l):
-            res = locals[id_prefix+'_'+unicode_type(i)] = v
+            res = locals[id_prefix+'_'+str(i)] = v
         return res
 
 
@@ -482,7 +552,7 @@ class BuiltinRawField(BuiltinFormatterFunction):
             if fm is None:
                 return ', '.join(res)
             return fm['is_multiple']['list_to_ui'].join(res)
-        return unicode_type(res)
+        return str(res)
 
 
 class BuiltinRawList(BuiltinFormatterFunction):
@@ -587,7 +657,7 @@ class BuiltinSwitch(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals, val, *args):
         if (len(args) % 2) != 1:
-            raise ValueError(_('switch requires an odd number of arguments'))
+            raise ValueError(_('switch requires an even number of arguments'))
         i = 0
         while i < len(args):
             if i + 1 >= len(args):
@@ -809,7 +879,7 @@ class BuiltinShorten(BuiltinFormatterFunction):
             'integers. For example, assume the title of the book is '
             '`Ancient English Laws in the Times of Ivanhoe`, and you want '
             'it to fit in a space of at most 15 characters. If you use '
-            '{title:shorten(9,-,5)}, the result will be `Ancient E-nhoe`. '
+            '{title:shorten(9,-,5)}, the result will be `Ancient E-anhoe`. '
             'If the field\'s length is less than left chars + right chars + '
             'the length of `middle text`, then the field will be used '
             'intact. For example, the title `The Dome` would not be changed.')
@@ -837,7 +907,7 @@ class BuiltinCount(BuiltinFormatterFunction):
             'Aliases: count(), list_count()')
 
     def evaluate(self, formatter, kwargs, mi, locals, val, sep):
-        return unicode_type(len([v for v in val.split(sep) if v]))
+        return str(len([v for v in val.split(sep) if v]))
 
 
 class BuiltinListCountMatching(BuiltinFormatterFunction):
@@ -856,7 +926,7 @@ class BuiltinListCountMatching(BuiltinFormatterFunction):
         for v in [x.strip() for x in list_.split(sep) if x.strip()]:
             if re.search(pattern, v, flags=re.I):
                 res += 1
-        return unicode_type(res)
+        return str(res)
 
 
 class BuiltinListitem(BuiltinFormatterFunction):
@@ -927,7 +997,7 @@ class BuiltinApproximateFormats(BuiltinFormatterFunction):
                 return ''
             data = sorted(fmt_data)
             return ','.join(v.upper() for v in data)
-        return _('This function can be used only in the GUI')
+        self.only_in_gui_error()
 
 
 class BuiltinFormatsModtimes(BuiltinFormatterFunction):
@@ -969,7 +1039,7 @@ class BuiltinFormatsSizes(BuiltinFormatterFunction):
     def evaluate(self, formatter, kwargs, mi, locals):
         fmt_data = mi.get('format_metadata', {})
         try:
-            return ','.join(k.upper()+':'+unicode_type(v['size']) for k,v in iteritems(fmt_data))
+            return ','.join(k.upper()+':'+str(v['size']) for k,v in iteritems(fmt_data))
         except:
             return ''
 
@@ -988,7 +1058,7 @@ class BuiltinFormatsPaths(BuiltinFormatterFunction):
     def evaluate(self, formatter, kwargs, mi, locals):
         fmt_data = mi.get('format_metadata', {})
         try:
-            return ','.join(k.upper()+':'+unicode_type(v['path']) for k,v in iteritems(fmt_data))
+            return ','.join(k.upper()+':'+str(v['path']) for k,v in iteritems(fmt_data))
         except:
             return ''
 
@@ -1230,12 +1300,12 @@ class BuiltinBooksize(BuiltinFormatterFunction):
             try:
                 v = mi._proxy_metadata.book_size
                 if v is not None:
-                    return unicode_type(mi._proxy_metadata.book_size)
+                    return str(mi._proxy_metadata.book_size)
                 return ''
             except:
                 pass
             return ''
-        return _('This function can be used only in the GUI')
+        self.only_in_gui_error()
 
 
 class BuiltinOndevice(BuiltinFormatterFunction):
@@ -1254,7 +1324,7 @@ class BuiltinOndevice(BuiltinFormatterFunction):
             if mi._proxy_metadata.ondevice_col:
                 return _('Yes')
             return ''
-        return _('This function can be used only in the GUI')
+        self.only_in_gui_error()
 
 
 class BuiltinAnnotationCount(BuiltinFormatterFunction):
@@ -1266,15 +1336,8 @@ class BuiltinAnnotationCount(BuiltinFormatterFunction):
                       'This function works only in the GUI.')
 
     def evaluate(self, formatter, kwargs, mi, locals):
-        if hasattr(mi, '_proxy_metadata'):
-            try:
-                from calibre.gui2.ui import get_gui
-                c = get_gui().current_db.new_api.annotation_count_for_book(mi.id)
-                return '' if c == 0 else unicode_type(c)
-            except:
-                return _('Failed to fetch annotation count')
-            return ''
-        return _('This function can be used only in the GUI')
+        c = self.get_database(mi).new_api.annotation_count_for_book(mi.id)
+        return '' if c == 0 else str(c)
 
 
 class BuiltinIsMarked(BuiltinFormatterFunction):
@@ -1287,15 +1350,8 @@ class BuiltinIsMarked(BuiltinFormatterFunction):
                       "marks. Returns '' if the book is not marked.")
 
     def evaluate(self, formatter, kwargs, mi, locals):
-        if hasattr(mi, '_proxy_metadata'):
-            try:
-                from calibre.gui2.ui import get_gui
-                c = get_gui().current_db.data.get_marked(mi.id)
-                return c if c else ''
-            except:
-                return _('Failed to get marked status')
-            return ''
-        return _('This function can be used only in the GUI')
+        c = self.get_database(mi).data.get_marked(mi.id)
+        return c if c else ''
 
 
 class BuiltinSeriesSort(BuiltinFormatterFunction):
@@ -1393,6 +1449,53 @@ class BuiltinNot(BuiltinFormatterFunction):
         return '' if val else '1'
 
 
+class BuiltinListJoin(BuiltinFormatterFunction):
+    name = 'list_join'
+    arg_count = -1
+    category = 'List manipulation'
+    __doc__ = doc = _("list_join(with_separator, list1, separator1 [, list2, separator2]*) -- "
+                      "return a list made by joining the items in the source lists "
+                      "(list1, etc) using with_separator between the items in the "
+                      "result list. Items in each source list[123...] are separated "
+                      "by the associated separator[123...]. A list can contain "
+                      "zero values. It can be a field like publisher that is "
+                      "single-valued, effectively a one-item list. Duplicates "
+                      "are removed using a case-insensitive comparison. Items are "
+                      "returned in the order they appear in the source lists. "
+                      "If items on lists differ only in letter case then the last "
+                      "is used. All separators can be more than one character.\n"
+                      "Example:") + "\n\n" + (
+                      "  program:\n"
+                      "    list_join('#@#', $authors, '&', $tags, ',')\n\n") + _(
+                      "You can use list_join on the results of previous "
+                      "calls to list_join as follows:") + "\n" + (
+                      "  program:\n\n"
+                      "    a = list_join('#@#', $authors, '&', $tags, ',');\n"
+                      "    b = list_join('#@#', a, '#@#', $#genre, ',', $#people, '&')\n\n") + _(
+                      "You can use expressions to generate a list. For example, "
+                      "assume you want items for authors and #genre, but "
+                      "with the genre changed to the word 'Genre: ' followed by "
+                      "the first letter of the genre, i.e. the genre 'Fiction' "
+                      "becomes 'Genre: F'. The following will do that:") + "\n" + (
+                      "  program:\n"
+                      "    list_join('#@#', $authors, '&', list_re($#genre, ',', '^(.).*$', 'Genre: \\1'),  ',')")
+
+    def evaluate(self, formatter, kwargs, mi, locals, with_separator, *args):
+        if len(args) % 2 != 0:
+            raise ValueError(
+                _("Invalid 'List, separator' pairs. Every list must have one "
+                  "associated separator"))
+
+        # Starting in python 3.7 dicts preserve order so we don't need OrderedDict
+        result = dict()
+        i = 0
+        while i < len(args):
+            lst = [v.strip() for v in args[i].split(args[i+1]) if v.strip()]
+            result.update({item.lower():item for item in lst})
+            i += 2
+        return with_separator.join(result.values())
+
+
 class BuiltinListUnion(BuiltinFormatterFunction):
     name = 'list_union'
     arg_count = 3
@@ -1411,6 +1514,54 @@ class BuiltinListUnion(BuiltinFormatterFunction):
         if separator == ',':
             separator = ', '
         return separator.join(res.values())
+
+
+class BuiltinRange(BuiltinFormatterFunction):
+    name = 'range'
+    arg_count = -1
+    category = 'List manipulation'
+    __doc__ = doc = _("range(start, stop, step, limit) -- "
+                      "returns a list of numbers generated by looping over the "
+                      "range specified by the parameters start, stop, and step, "
+                      "with a maximum length of limit. The first value produced "
+                      "is 'start'. Subsequent values next_v are "
+                      "current_v+step. The loop continues while "
+                      "next_v < stop assuming step is positive, otherwise "
+                      "while next_v > stop. An empty list is produced if "
+                      "start fails the test: start>=stop if step "
+                      "is positive. The limit sets the maximum length of "
+                      "the list and has a default of 1000. The parameters "
+                      "start, step, and limit are optional. "
+                      "Calling range() with one argument specifies stop. "
+                      "Two arguments specify start and stop. Three arguments "
+                      "specify start, stop, and step. Four "
+                      "arguments specify start, stop, step and limit. "
+                      "Examples: range(5) -> '0,1,2,3,4'. range(0,5) -> '0,1,2,3,4'. "
+                      "range(-1,5) -> '-1,0,1,2,3,4'. range(1,5) -> '1,2,3,4'. "
+                      "range(1,5,2) -> '1,3'. range(1,5,2,5) -> '1,3'. "
+                      "range(1,5,2,1) -> error(limit exceeded).")
+
+    def evaluate(self, formatter, kwargs, mi, locals, *args):
+        limit_val = 1000
+        start_val = 0
+        step_val = 1
+        if len(args) == 1:
+            stop_val = int(args[0] if args[0] and args[0] != 'None' else 0)
+        elif len(args) == 2:
+            start_val = int(args[0] if args[0] and args[0] != 'None' else 0)
+            stop_val = int(args[1] if args[1] and args[1] != 'None' else 0)
+        elif len(args) >= 3:
+            start_val = int(args[0] if args[0] and args[0] != 'None' else 0)
+            stop_val = int(args[1] if args[1] and args[1] != 'None' else 0)
+            step_val = int(args[2] if args[2] and args[2] != 'None' else 0)
+            if len(args) > 3:
+                limit_val = int(args[3] if args[3] and args[3] != 'None' else 0)
+        r = range(start_val, stop_val, step_val)
+        if len(r) > limit_val:
+            raise ValueError(
+                _("{0}: length ({1}) longer than limit ({2})").format(
+                            'range', len(r), str(limit_val)))
+        return ', '.join([str(v) for v in r])
 
 
 class BuiltinListRemoveDuplicates(BuiltinFormatterFunction):
@@ -1612,6 +1763,55 @@ class BuiltinDaysBetween(BuiltinFormatterFunction):
         return '%.1f'%(i.days + (i.seconds/(24.0*60.0*60.0)))
 
 
+class BuiltinDateArithmetic(BuiltinFormatterFunction):
+    name = 'date_arithmetic'
+    arg_count = -1
+    category = 'Date functions'
+    __doc__ = doc = _('date_arithmetic(date, calc_spec, fmt) -- '
+            "Calculate a new date from 'date' using 'calc_spec'. Return the "
+            "new date formatted according to optional 'fmt': if not supplied "
+            "then the result will be in iso format. The calc_spec is a string "
+            "formed by concatenating pairs of 'vW' (valueWhat) where 'v' is a "
+            "possibly-negative number and W is one of the following letters: "
+            "s: add 'v' seconds to 'date' "
+            "m: add 'v' minutes to 'date' "
+            "h: add 'v' hours to 'date' "
+            "d: add 'v' days to 'date' "
+            "w: add 'v' weeks to 'date' "
+            "y: add 'v' years to 'date', where a year is 365 days. "
+            "Example: '1s3d-1m' will add 1 second, add 3 days, and subtract 1 "
+            "minute from 'date'.")
+
+    calc_ops = {
+        's': lambda v: timedelta(seconds=v),
+        'm': lambda v: timedelta(minutes=v),
+        'h': lambda v: timedelta(hours=v),
+        'd': lambda v: timedelta(days=v),
+        'w': lambda v: timedelta(weeks=v),
+        'y': lambda v: timedelta(days=v * 365),
+    }
+
+    def evaluate(self, formatter, kwargs, mi, locals, date, calc_spec, fmt=None):
+        try:
+            d = parse_date(date)
+            if d == UNDEFINED_DATE:
+                return ''
+            while calc_spec:
+                mo = re.match(r'([-+\d]+)([smhdwy])', calc_spec)
+                if mo is None:
+                    raise ValueError(
+                        _("{0}: invalid calculation specifier '{1}'").format(
+                            'date_arithmetic', calc_spec))
+                d += self.calc_ops[mo[2]](int(mo[1]))
+                calc_spec = calc_spec[len(mo[0]):]
+            return format_date(d, fmt if fmt else 'iso')
+        except ValueError as e:
+            raise e
+        except Exception as e:
+            traceback.print_exc()
+            raise ValueError(_("{0}: error: {1}").format('date_arithmetic', str(e)))
+
+
 class BuiltinLanguageStrings(BuiltinFormatterFunction):
     name = 'language_strings'
     arg_count = 2
@@ -1713,11 +1913,25 @@ class BuiltinVirtualLibraries(BuiltinFormatterFunction):
                       'column\'s value in your save/send templates')
 
     def evaluate(self, formatter, kwargs, mi, locals_):
-        if hasattr(mi, '_proxy_metadata'):
-            from calibre.gui2.ui import get_gui
-            a = get_gui().current_db.data.get_virtual_libraries_for_books((mi.id,))
+        db = self.get_database(mi)
+        try:
+            a = db.data.get_virtual_libraries_for_books((mi.id,))
             return ', '.join(a[mi.id])
-        return _('This function can be used only in the GUI')
+        except ValueError as v:
+            return str(v)
+
+
+class BuiltinCurrentVirtualLibraryName(BuiltinFormatterFunction):
+    name = 'current_virtual_library_name'
+    arg_count = 0
+    category = 'Get values from metadata'
+    __doc__ = doc = _('current_virtual_library_name() -- '
+            'return the name of the current virtual library if there is one, '
+            'otherwise the empty string. Library name case is preserved. '
+            'Example: "program: current_virtual_library_name()".')
+
+    def evaluate(self, formatter, kwargs, mi, locals):
+        return self.get_database(mi).data.get_base_restriction_name()
 
 
 class BuiltinUserCategories(BuiltinFormatterFunction):
@@ -1734,10 +1948,10 @@ class BuiltinUserCategories(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals_):
         if hasattr(mi, '_proxy_metadata'):
-            cats = set(k for k, v in iteritems(mi._proxy_metadata.user_categories) if v)
+            cats = {k for k, v in iteritems(mi._proxy_metadata.user_categories) if v}
             cats = sorted(cats, key=sort_key)
             return ', '.join(cats)
-        return _('This function can be used only in the GUI')
+        self.only_in_gui_error()
 
 
 class BuiltinTransliterate(BuiltinFormatterFunction):
@@ -1748,7 +1962,7 @@ class BuiltinTransliterate(BuiltinFormatterFunction):
                       'formed by approximating the sound of the words in the '
                       'source string. For example, if the source is "{0}"'
                       ' the function returns "{1}".').format(
-                          u"Фёдор Миха́йлович Достоевский", 'Fiodor Mikhailovich Dostoievskii')
+                          "Фёдор Миха́йлович Достоевский", 'Fiodor Mikhailovich Dostoievskii')
 
     def evaluate(self, formatter, kwargs, mi, locals, source):
         from calibre.utils.filenames import ascii_text
@@ -1778,7 +1992,7 @@ class BuiltinAuthorLinks(BuiltinFormatterFunction):
                 return ''
             names = sorted(link_data.keys(), key=sort_key)
             return pair_sep.join(n + val_sep + link_data[n] for n in names)
-        return _('This function can be used only in the GUI')
+        self.only_in_gui_error()
 
 
 class BuiltinAuthorSorts(BuiltinFormatterFunction):
@@ -1814,7 +2028,9 @@ class BuiltinConnectedDeviceName(BuiltinFormatterFunction):
                       "'carda' and 'cardb'. This function works only in the GUI.")
 
     def evaluate(self, formatter, kwargs, mi, locals, storage_location):
-        if hasattr(mi, '_proxy_metadata'):
+        # We can't use get_database() here because we need the device manager.
+        # In other words, the function really does need the GUI
+        with suppress(Exception):
             # Do the import here so that we don't entangle the GUI when using
             # command line functions
             from calibre.gui2.ui import get_gui
@@ -1824,16 +2040,16 @@ class BuiltinConnectedDeviceName(BuiltinFormatterFunction):
             try:
                 if storage_location not in {'main', 'carda', 'cardb'}:
                     raise ValueError(
-                         _('connected_device_name: invalid storage location "{0}"'
+                         _('connected_device_name: invalid storage location "{}"'
                                     .format(storage_location)))
                 info = info['info'][4]
                 if storage_location not in info:
                     return ''
                 return info[storage_location]['device_name']
-            except:
+            except Exception:
                 traceback.print_exc()
                 raise
-        return _('This function can be used only in the GUI')
+        self.only_in_gui_error()
 
 
 class BuiltinConnectedDeviceUUID(BuiltinFormatterFunction):
@@ -1848,7 +2064,9 @@ class BuiltinConnectedDeviceUUID(BuiltinFormatterFunction):
                       "the GUI.")
 
     def evaluate(self, formatter, kwargs, mi, locals, storage_location):
-        if hasattr(mi, '_proxy_metadata'):
+        # We can't use get_database() here because we need the device manager.
+        # In other words, the function really does need the GUI
+        with suppress(Exception):
             # Do the import here so that we don't entangle the GUI when using
             # command line functions
             from calibre.gui2.ui import get_gui
@@ -1858,16 +2076,16 @@ class BuiltinConnectedDeviceUUID(BuiltinFormatterFunction):
             try:
                 if storage_location not in {'main', 'carda', 'cardb'}:
                     raise ValueError(
-                         _('connected_device_name: invalid storage location "{0}"'
+                         _('connected_device_name: invalid storage location "{}"'
                                     .format(storage_location)))
                 info = info['info'][4]
                 if storage_location not in info:
                     return ''
                 return info[storage_location]['device_store_uuid']
-            except:
+            except Exception:
                 traceback.print_exc()
                 raise
-        return _('This function can be used only in the GUI')
+        self.only_in_gui_error()
 
 
 class BuiltinCheckYesNo(BuiltinFormatterFunction):
@@ -1888,6 +2106,9 @@ class BuiltinCheckYesNo(BuiltinFormatterFunction):
                       'is usually used by the test() or is_empty() functions.')
 
     def evaluate(self, formatter, kwargs, mi, locals, field, is_undefined, is_false, is_true):
+        # 'field' is a lookup name, not a value
+        if field not in self.get_database(mi).field_metadata:
+            raise ValueError(_("The column {} doesn't exist").format(field))
         res = getattr(mi, field, None)
         if res is None:
             if is_undefined == '1':
@@ -1955,12 +2176,12 @@ class BuiltinSwapAroundArticles(BuiltinFormatterFunction):
 class BuiltinArguments(BuiltinFormatterFunction):
     name = 'arguments'
     arg_count = -1
-    category = 'other'
+    category = 'Other'
     __doc__ = doc = _('arguments(id[=expression] [, id[=expression]]*) '
                       '-- Used in a stored template to retrieve the arguments '
                       'passed in the call. It both declares and initializes '
                       'local variables, effectively parameters. The variables '
-                      'are positional; they get the value of the value given '
+                      'are positional; they get the value of the parameter given '
                       'in the call in the same position. If the corresponding '
                       'parameter is not provided in the call then arguments '
                       'assigns that variable the provided default value. If '
@@ -1975,7 +2196,7 @@ class BuiltinArguments(BuiltinFormatterFunction):
 class BuiltinGlobals(BuiltinFormatterFunction):
     name = 'globals'
     arg_count = -1
-    category = 'other'
+    category = 'Other'
     __doc__ = doc = _('globals(id[=expression] [, id[=expression]]*) '
                       '-- Retrieves "global variables" that can be passed into '
                       'the formatter. It both declares and initializes local '
@@ -1994,14 +2215,11 @@ class BuiltinSetGlobals(BuiltinFormatterFunction):
     name = 'set_globals'
     arg_count = -1
     category = 'other'
-    __doc__ = doc = _('globals(id[=expression] [, id[=expression]]*) '
-                      '-- Retrieves "global variables" that can be passed into '
-                      'the formatter. It both declares and initializes local '
-                      'variables with the names of the global variables passed '
-                      'in. If the corresponding variable is not provided in '
-                      'the passed-in globals then it assigns that variable the '
-                      'provided default value. If there is no default value '
-                      'then the variable is set to the empty string.')
+    __doc__ = doc = _('set_globals(id[=expression] [, id[=expression]]*) '
+                      '-- Sets "global variables" that can be passed into '
+                      'the formatter. The globals are given the name of the id '
+                      'passed in. The value of the id is used unless an '
+                      'expression is provided.')
 
     def evaluate(self, formatter, kwargs, mi, locals, *args):
         # The globals function is implemented in-line in the formatter
@@ -2037,13 +2255,115 @@ class BuiltinCharacter(BuiltinFormatterFunction):
         raise NotImplementedError()
 
 
+class BuiltinToHex(BuiltinFormatterFunction):
+    name = 'to_hex'
+    arg_count = 1
+    category = 'String manipulation'
+    __doc__ = doc = _('to_hex(val) -- returns the string encoded in hex. '
+                      'This is useful when constructing calibre URLs.')
+
+    def evaluate(self, formatter, kwargs, mi, locals, val):
+        return val.encode().hex()
+
+
+class BuiltinUrlsFromIdentifiers(BuiltinFormatterFunction):
+    name = 'urls_from_identifiers'
+    arg_count = 2
+    category = 'Formatting values'
+    __doc__ = doc = _('urls_from_identifiers(identifiers, sort_results) -- given '
+                      'a comma-separated list of identifiers, where an identifier '
+                      'is a colon-separated pair of values (name:id_value), returns a '
+                      'comma-separated list of HTML URLs generated from the '
+                      'identifiers. The list not sorted if sort_results is 0 '
+                      '(character or number), otherwise it is sorted alphabetically '
+                      'by the identifier name. The URLs are generated in the same way '
+                      'as the built-in identifiers column when shown in Book details.')
+
+    def evaluate(self, formatter, kwargs, mi, locals, identifiers, sort_results):
+        from calibre.ebooks.metadata.sources.identify import urls_from_identifiers
+        try:
+            v = {}
+            for id_ in identifiers.split(','):
+                if id_:
+                    pair = id_.split(':', maxsplit=1)
+                    if len(pair) == 2:
+                        l = pair[0].strip()
+                        r = pair[1].strip()
+                        if l and r:
+                            v[l] = r
+            urls = urls_from_identifiers(v, sort_results=str(sort_results) != '0')
+            p = prepare_string_for_xml
+            a = partial(prepare_string_for_xml, attribute=True)
+            links = [f'<a href="{a(url)}" title="{a(id_typ)}:{a(id_val)}">{p(name)}</a>'
+                for name, id_typ, id_val, url in urls]
+            return ', '.join(links)
+        except Exception as e:
+            return str(e)
+
+
+class BuiltinBookCount(BuiltinFormatterFunction):
+    name = 'book_count'
+    arg_count = 2
+    category = 'Template database functions'
+    __doc__ = doc = _('book_count(query, use_vl) -- returns the count of '
+                      'books found by searching for query. If use_vl is '
+                      '0 (zero) then virtual libraries are ignored. This '
+                      'function can be used only in the GUI.')
+
+    def evaluate(self, formatter, kwargs, mi, locals, query, use_vl):
+        from calibre.db.fields import rendering_composite_name
+        if (not tweaks.get('allow_template_database_functions_in_composites', False) and
+                formatter.global_vars.get(rendering_composite_name, None)):
+            raise ValueError(_('The book_count() function cannot be used in a composite column'))
+        db = self.get_database(mi)
+        try:
+            ids = db.search_getting_ids(query, None, use_virtual_library=use_vl != '0')
+            return len(ids)
+        except Exception:
+            traceback.print_exc()
+
+
+class BuiltinBookValues(BuiltinFormatterFunction):
+    name = 'book_values'
+    arg_count = 4
+    category = 'Template database functions'
+    __doc__ = doc = _('book_values(column, query, sep, use_vl) -- returns a list '
+                      'of the values contained in the column "column", separated '
+                      'by "sep", in the books found by searching for "query". '
+                      'If use_vl is 0 (zero) then virtual libraries are ignored. '
+                      'This function can be used only in the GUI.')
+
+    def evaluate(self, formatter, kwargs, mi, locals, column, query, sep, use_vl):
+        from calibre.db.fields import rendering_composite_name
+        if (not tweaks.get('allow_template_database_functions_in_composites', False) and
+                formatter.global_vars.get(rendering_composite_name, None)):
+            raise ValueError(_('The book_values() function cannot be used in a composite column'))
+        db = self.get_database(mi)
+        if column not in db.field_metadata:
+            raise ValueError(_("The column {} doesn't exist").format(column))
+        try:
+            ids = db.search_getting_ids(query, None, use_virtual_library=use_vl != '0')
+            s = set()
+            for id_ in ids:
+                f = db.new_api.get_proxy_metadata(id_).get(column, None)
+                if isinstance(f, (tuple, list)):
+                    s.update(f)
+                elif f:
+                    s.add(str(f))
+            return sep.join(s)
+        except Exception as e:
+            raise ValueError(e)
+
+
 _formatter_builtins = [
     BuiltinAdd(), BuiltinAnd(), BuiltinApproximateFormats(), BuiltinArguments(),
     BuiltinAssign(),
-    BuiltinAuthorLinks(), BuiltinAuthorSorts(), BuiltinBooksize(),
+    BuiltinAuthorLinks(), BuiltinAuthorSorts(), BuiltinBookCount(),
+    BuiltinBookValues(), BuiltinBooksize(),
     BuiltinCapitalize(), BuiltinCharacter(), BuiltinCheckYesNo(), BuiltinCeiling(),
     BuiltinCmp(), BuiltinConnectedDeviceName(), BuiltinConnectedDeviceUUID(), BuiltinContains(),
     BuiltinCount(), BuiltinCurrentLibraryName(), BuiltinCurrentLibraryPath(),
+    BuiltinCurrentVirtualLibraryName(), BuiltinDateArithmetic(),
     BuiltinDaysBetween(), BuiltinDivide(), BuiltinEval(), BuiltinFirstNonEmpty(),
     BuiltinField(), BuiltinFieldExists(),
     BuiltinFinishFormatting(), BuiltinFirstMatchingCmp(), BuiltinFloor(),
@@ -2053,32 +2373,37 @@ _formatter_builtins = [
     BuiltinHasCover(), BuiltinHumanReadable(), BuiltinIdentifierInList(),
     BuiltinIfempty(), BuiltinLanguageCodes(), BuiltinLanguageStrings(),
     BuiltinInList(), BuiltinIsMarked(), BuiltinListCountMatching(),
-    BuiltinListDifference(), BuiltinListEquals(),
-    BuiltinListIntersection(), BuiltinListitem(), BuiltinListRe(),
+    BuiltinListDifference(), BuiltinListEquals(), BuiltinListIntersection(),
+    BuiltinListitem(), BuiltinListJoin(), BuiltinListRe(),
     BuiltinListReGroup(), BuiltinListRemoveDuplicates(), BuiltinListSort(),
     BuiltinListSplit(), BuiltinListUnion(),BuiltinLookup(),
     BuiltinLowercase(), BuiltinMod(), BuiltinMultiply(), BuiltinNot(), BuiltinOndevice(),
-    BuiltinOr(), BuiltinPrint(), BuiltinRatingToStars(), BuiltinRawField(), BuiltinRawList(),
+    BuiltinOr(), BuiltinPrint(), BuiltinRatingToStars(), BuiltinRange(),
+    BuiltinRawField(), BuiltinRawList(),
     BuiltinRe(), BuiltinReGroup(), BuiltinRound(), BuiltinSelect(), BuiltinSeriesSort(),
     BuiltinSetGlobals(), BuiltinShorten(), BuiltinStrcat(), BuiltinStrcatMax(),
-    BuiltinStrcmp(), BuiltinStrInList(), BuiltinStrlen(), BuiltinSubitems(),
+    BuiltinStrcmp(), BuiltinStrcmpcase(), BuiltinStrInList(), BuiltinStrlen(), BuiltinSubitems(),
     BuiltinSublist(),BuiltinSubstr(), BuiltinSubtract(), BuiltinSwapAroundArticles(),
     BuiltinSwapAroundComma(), BuiltinSwitch(),
-    BuiltinTemplate(), BuiltinTest(), BuiltinTitlecase(),
-    BuiltinToday(), BuiltinTransliterate(), BuiltinUppercase(),
+    BuiltinTemplate(), BuiltinTest(), BuiltinTitlecase(), BuiltinToday(),
+    BuiltinToHex(), BuiltinTransliterate(), BuiltinUppercase(), BuiltinUrlsFromIdentifiers(),
     BuiltinUserCategories(), BuiltinVirtualLibraries(), BuiltinAnnotationCount()
 ]
 
 
 class FormatterUserFunction(FormatterFunction):
 
-    def __init__(self, name, doc, arg_count, program_text, is_python):
-        self.is_python = is_python
+    def __init__(self, name, doc, arg_count, program_text, object_type):
+        self.object_type = object_type
         self.name = name
         self.doc = doc
         self.arg_count = arg_count
         self.program_text = program_text
-        self.cached_parse_tree = None
+        self.cached_compiled_text = None
+        # Keep this for external code compatibility. Set it to True if we have a
+        # python template function, otherwise false. This might break something
+        # if the code depends on stored templates being in GPM.
+        self.is_python = True if object_type is StoredObjectType.PythonFunction else False
 
     def to_pref(self):
         return [self.name, self.doc, self.arg_count, self.program_text]
@@ -2087,13 +2412,20 @@ class FormatterUserFunction(FormatterFunction):
 tabs = re.compile(r'^\t*')
 
 
-def function_pref_is_python(pref):
-    if isinstance(pref, list):
-        pref = pref[3]
-    if pref.startswith('def'):
-        return True
-    if pref.startswith('program'):
-        return False
+def function_object_type(thing):
+    # 'thing' can be a preference instance, program text, or an already-compiled function
+    if isinstance(thing, FormatterUserFunction):
+        return thing.object_type
+    if isinstance(thing, list):
+        text = thing[3]
+    else:
+        text = thing
+    if text.startswith('def'):
+        return StoredObjectType.PythonFunction
+    if text.startswith('program'):
+        return StoredObjectType.StoredGPMTemplate
+    if text.startswith('python'):
+        return StoredObjectType.StoredPythonTemplate
     raise ValueError('Unknown program type in formatter function pref')
 
 
@@ -2102,8 +2434,9 @@ def function_pref_name(pref):
 
 
 def compile_user_function(name, doc, arg_count, eval_func):
-    if not function_pref_is_python(eval_func):
-        return FormatterUserFunction(name, doc, arg_count, eval_func, False)
+    typ = function_object_type(eval_func)
+    if typ is not StoredObjectType.PythonFunction:
+        return FormatterUserFunction(name, doc, arg_count, eval_func, typ)
 
     def replace_func(mo):
         return mo.group().replace('\t', '    ')
@@ -2119,7 +2452,7 @@ class UserFunction(FormatterUserFunction):
     if DEBUG and tweaks.get('enable_template_debug_printing', False):
         print(prog)
     exec(prog, locals_)
-    cls = locals_['UserFunction'](name, doc, arg_count, eval_func, True)
+    cls = locals_['UserFunction'](name, doc, arg_count, eval_func, typ)
     return cls
 
 
@@ -2136,7 +2469,7 @@ def compile_user_template_functions(funcs):
             # then white space differences don't cause them to compare differently
 
             cls = compile_user_function(*func)
-            cls.is_python = function_pref_is_python(func)
+            cls.object_type = function_object_type(func)
             compiled_funcs[cls.name] = cls
         except Exception:
             try:

@@ -35,7 +35,7 @@ from read_book.prefs.scrolling import (
 from read_book.read_aloud import ReadAloud
 from read_book.resources import load_resources
 from read_book.scrollbar import BookScrollbar
-from read_book.search import SearchOverlay, find_in_spine
+from read_book.search import SearchOverlay
 from read_book.selection_bar import SelectionBar
 from read_book.shortcuts import create_shortcut_map
 from read_book.timers import Timers
@@ -191,9 +191,9 @@ def margin_elem(sd, which, id, onclick, oncontextmenu):
     return ans
 
 
-def side_margin_elem(self, sd, which):
+def side_margin_elem(self, sd, which, icon):
     ans = E.div(
-        E.div(class_='arrow', style='order: 3', svgicon(f'caret-{which}', '100%', '100%')),
+        E.div(class_='arrow', style='order: 3', svgicon(f'caret-{icon}', '100%', '100%')),
         E.div(style='order:1'), E.div(style='order:2', class_='not-arrow'), E.div(style='order:4'),
 
         style='width:{}px; user-select: none'.format(sd.get(f'margin_{which}', 20)),
@@ -225,9 +225,9 @@ class View:
         self.keyboard_shortcut_map = create_shortcut_map(sd.get('keyboard_shortcuts'))
         if ui_operations.export_shortcut_map:
             ui_operations.export_shortcut_map(self.keyboard_shortcut_map)
-        left_margin = side_margin_elem(self, sd, 'left')
+        left_margin = side_margin_elem(self, sd, 'left', 'right' if sd.get('reverse_page_turn_zones') else 'left')
         set_left_margin_handler(left_margin)
-        right_margin = side_margin_elem(self, sd, 'right')
+        right_margin = side_margin_elem(self, sd, 'right', 'left' if sd.get('reverse_page_turn_zones') else 'right')
         set_right_margin_handler(right_margin)
         handlers = {
             'autoscroll_state_changed': def(data):
@@ -238,7 +238,6 @@ class View:
             'bump_font_size': self.bump_font_size,
             'content_loaded': self.on_content_loaded,
             'error': self.on_iframe_error,
-            'find_in_spine': self.on_find_in_spine,
             'invisible_text': self.on_invisible_text,
             'goto_doc_boundary': def(data): self.goto_doc_boundary(data.start);,
             'handle_keypress': self.on_handle_keypress,
@@ -304,7 +303,7 @@ class View:
                         E.div(style='position: absolute; top:0; left:0; width: 100%; height: 100%; display:none;', id='book-selection-bar-overlay'),  # selection bar overlay
                         E.div(style='position: absolute; top:0; left:0; width: 100%; height: 100%; display:none;', id='book-read-aloud-overlay'),  # read aloud overlay
                         E.div(style='position: absolute; top:0; left:0; width: 100%; height: 100%; display:none;', id='book-hints-overlay'),  # hints overlay
-                        E.div(style='position: absolute; top:0; left:0; width: 100%; pointer-events:none; display:none', id='book-search-overlay'),  # search overlay
+                        E.div(style='position: absolute; top:0; left:0; width: 100%; height:100%; display:none', id=SearchOverlay.CONTAINER_ID),  # search overlay
                         E.div(style='position: absolute; top:0; left:0; width: 100%; height: 100%; display:none', id='book-content-popup-overlay'),  # content popup overlay
                         E.div(style='position: absolute; top:0; left:0; width: 100%; height: 100%; overflow: auto; display:none', id='book-overlay'),  # main overlay
                         E.div(style='position: absolute; top:0; left:0; width: 100%; height: 100%; display:none', id='controls-help-overlay'),  # controls help overlay
@@ -371,34 +370,21 @@ class View:
     def on_hints_message(self, data):
         self.hints.handle_message(data)
 
-    def left_margin_clicked(self, event):
-        if event.button is 0:
-            event.preventDefault(), event.stopPropagation()
-            sd = get_session_data()
-            self.iframe_wrapper.send_message(
-                'next_screen', backwards=True,
-                flip_if_rtl_page_progression=True,
-                all_pages_on_screen=sd.get('paged_margin_clicks_scroll_by_screen'))
-        elif event.button is 2:
-            event.preventDefault(), event.stopPropagation()
-            window.setTimeout(self.show_chrome, 0)
-        self.focus_iframe()
-
-    def right_margin_clicked(self, event):
-        if event.button is 0:
-            event.preventDefault(), event.stopPropagation()
-            sd = get_session_data()
-            self.iframe_wrapper.send_message(
-                'next_screen', backwards=False,
-                flip_if_rtl_page_progression=True,
-                all_pages_on_screen=sd.get('paged_margin_clicks_scroll_by_screen'))
-        elif event.button is 2:
-            event.preventDefault(), event.stopPropagation()
-            window.setTimeout(self.show_chrome, 0)
-        self.focus_iframe()
-
     def side_margin_clicked(self, which, event):
-        self.left_margin_clicked(event) if which is 'left' else self.right_margin_clicked(event)
+        backwards = which is 'left'
+        if get_session_data().get('reverse_page_turn_zones'):
+            backwards = not backwards
+        if event.button is 0:
+            event.preventDefault(), event.stopPropagation()
+            sd = get_session_data()
+            self.iframe_wrapper.send_message(
+                'next_screen', backwards=backwards,
+                flip_if_rtl_page_progression=True,
+                all_pages_on_screen=sd.get('paged_margin_clicks_scroll_by_screen'))
+        elif event.button is 2:
+            event.preventDefault(), event.stopPropagation()
+            window.setTimeout(self.show_chrome, 0)
+        self.focus_iframe()
 
     def top_margin_clicked(self, event):
         if event.button is 0 or event.button is 2:
@@ -518,15 +504,9 @@ class View:
         elif data.name is 'start_search':
             self.show_search()
         elif data.name is 'next_match':
-            if ui_operations.find_next:
-                ui_operations.find_next()
-            else:
-                self.search_overlay.find_next()
+            ui_operations.find_next()
         elif data.name is 'previous_match':
-            if ui_operations.find_next:
-                ui_operations.find_next(True)
-            else:
-                self.search_overlay.find_previous()
+            ui_operations.find_next(True)
         elif data.name is 'increase_font_size':
             self.bump_font_size({'increase': True})
         elif data.name is 'decrease_font_size':
@@ -655,44 +635,12 @@ class View:
         misc.show_actions_toolbar = v'!misc.show_actions_toolbar'
         sd.set('standalone_misc_settings', misc)
 
-    def find(self, text, backwards):
-        self.iframe_wrapper.send_message('find', text=text, backwards=backwards, searched_in_spine=False)
-
     def on_invisible_text(self, data):
         warning_dialog(
                 _('Not found'), _('The text: <i>{}</i> is present on this page but not visible').format(html_escape(data.text)),
                 on_close=def():
                     self.search_overlay.show()
             )
-
-    def on_find_in_spine(self, data):
-        if data.searched_in_spine:
-            warning_dialog(
-                _('Not found'), _('The text: <i>{}</i> was not found in this book').format(html_escape(data.text)),
-                on_close=def():
-                    self.search_overlay.show()
-            )
-            return
-        spine = self.book.manifest.spine
-        idx = spine.indexOf(self.currently_showing.name)
-        if idx < 0:
-            error_dialog(_('Missing file'), _(
-                'Could not search as the spine item {} is missing from the book').format(self.currently_showing.name),
-                on_close=def():
-                    self.search_overlay.show()
-            )
-            return
-        names = v'[]'
-        item_groups = [range(idx-1, -1, -1), range(spine.length-1, idx, -1)] if data.backwards else [range(idx + 1, spine.length), range(idx)]
-        for items in item_groups:
-            for i in items:
-                names.push(spine[i])
-        find_in_spine(names, self.book, data.text, def(found_in):
-            if found_in:
-                self.show_name(found_in, initial_position={'type':'search', 'search_data':data, 'replace_history':True})
-            else:
-                self.iframe_wrapper.send_message('find', text=data.text, backwards=data.backwards, searched_in_spine=True)
-        )
 
     def bump_font_size(self, data):
         mult = 1 if data.increase else -1
@@ -821,6 +769,8 @@ class View:
 
     def on_iframe_ready(self, data):
         data.width, data.height = self.iframe_size()
+        if ui_operations.on_iframe_ready:
+            ui_operations.on_iframe_ready()
         return self.do_pending_load
 
     def do_pending_load(self):
@@ -831,15 +781,29 @@ class View:
 
     def on_iframe_error(self, data):
         title = data.title or _('There was an error processing the book')
+        msg = _('Unknown error')
+        if data.errkey:
+            if data.errkey is 'no-auto-scroll-in-paged-mode':
+                title = _('No auto scroll in paged mode')
+                msg = _('Switch to flow mode (Viewer preferences->Page layout) to enable auto scrolling')
+            elif data.errkey is 'changing-columns-in-flow-mode':
+                title=_('In flow mode')
+                msg=_('Cannot change number of pages per screen in flow mode, switch to paged mode first.')
+            elif data.errkey = 'unhandled-error':
+                title = _('Unhandled error')
         if data.is_non_critical:
-            warning_dialog(title, data.msg, data.details, on_close=ui_operations.focus_iframe)
+            warning_dialog(title, msg, data.details, on_close=ui_operations.focus_iframe)
             return
-        ui_operations.show_error(title, data.msg, data.details)
+        ui_operations.show_error(title, msg, data.details)
 
     def apply_color_scheme(self):
         self.current_color_scheme = ans = resolve_color_scheme()
+        iframe = self.iframe
         if runtime.is_standalone_viewer:
             set_ui_colors(self.current_color_scheme.is_dark_theme)
+        else:
+            iframe.style.colorScheme = 'dark' if self.current_color_scheme.is_dark_theme else 'light'
+
         is_dark_theme(self.current_color_scheme.is_dark_theme)
         for which in 'left top right bottom'.split(' '):
             m = document.getElementById('book-{}-margin'.format(which))
@@ -851,7 +815,6 @@ class View:
                 s.color = ans.foreground
                 s.backgroundColor = ans.background
         sd = get_session_data()
-        iframe = self.iframe
         iframe.style.backgroundColor = ans.background or 'white'
         bg_image = sd.get('background_image')
         if bg_image:
@@ -927,12 +890,13 @@ class View:
         is_current_book = self.book and self.book.key == book.key
         self.book_load_started = True
         if not is_current_book:
-            self.iframe_wrapper.reset()
-            self.content_popup_overlay.reset()
+            if self.book:
+                self.iframe_wrapper.reset()
+                self.content_popup_overlay.reset()
             self.loaded_resources = {}
             self.content_popup_overlay.loaded_resources = {}
             self.timers.start_book(book)
-            self.search_overlay.clear_caches()
+            self.search_overlay.clear_caches(book)
         unkey = username_key(get_interface_data().username)
         self.book = current_book.book = book
         hl = None
@@ -1038,6 +1002,7 @@ class View:
             'lines_per_sec_smooth': sd.get('lines_per_sec_smooth'),
             'scroll_auto_boundary_delay': sd.get('scroll_auto_boundary_delay'),
             'scroll_stop_boundaries': sd.get('scroll_stop_boundaries'),
+            'reverse_page_turn_zones': sd.get('reverse_page_turn_zones'),
         }
 
     def show_name(self, name, initial_position=None):
@@ -1102,6 +1067,13 @@ class View:
 
     def on_scroll_to_anchor(self, data):
         self.show_name(data.name, initial_position={'type':'anchor', 'anchor':data.frag, 'replace_history':False})
+
+    def link_in_content_popup_activated(self, name, frag, is_popup, title):
+        self.content_popup_overlay.hide()
+        if is_popup:
+            self.iframe_wrapper.send_message('fake_popup_activation', name=name, frag=frag, title=title)
+        else:
+            self.goto_named_destination(name, frag)
 
     def goto_cfi(self, bookpos, add_to_history):
         cfiname, internal_cfi = self.parse_cfi(bookpos, self.book)
@@ -1425,8 +1397,9 @@ class View:
         if self.search_result_discovery?.on_discovery is sr.on_discovery:
             self.search_result_discovery.in_flight = None
             if discovered:
-                self.search_result_discovery.discovered = True
-                ui_operations.search_result_discovered(sr)
+                if not self.search_result_discovery.discovered:
+                    self.search_result_discovery.discovered = True
+                    ui_operations.search_result_discovered(sr)
             elif not self.search_result_discovery.discovered and self.search_result_discovery.queue.length:
                 self.show_search_result(self.search_result_discovery.queue.shift())
 

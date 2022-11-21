@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 # License: GPLv3 Copyright: 2012, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -24,7 +23,7 @@ from calibre.utils.fonts.utils import checksum_of_block, get_tables, verify_chec
 # OpenType spec: http://www.microsoft.com/typography/otspec/otff.htm
 
 
-class Sfnt(object):
+class Sfnt:
 
     TABLE_MAP = {
         b'head' : HeadTable,
@@ -79,8 +78,7 @@ class Sfnt(object):
 
     def __iter__(self):
         '''Iterate over the table tags in order.'''
-        for x in sorted(self.tables):
-            yield x
+        yield from sorted(self.tables)
         # Although the optimal order is not alphabetical, the OTF spec says
         # they should be alphabetical, so we stick with that. See
         # http://partners.adobe.com/public/developer/opentype/index_recs.html
@@ -105,6 +103,12 @@ class Sfnt(object):
         for tag in self:
             ans[tag] = len(self[tag])
         return ans
+
+    def get_all_font_names(self):
+        from calibre.utils.fonts.metadata import get_font_names2, FontNames
+        name_table = self.get(b'name')
+        if name_table is not None:
+            return FontNames(*get_font_names2(name_table.raw, raw_is_table=True))
 
     def __call__(self, stream=None):
         stream = BytesIO() if stream is None else stream

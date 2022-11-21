@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -47,29 +46,36 @@ def customize_remove_unused_css(name, parent, ans):
     l.addWidget(c)
     d.la2 = label('<span style="font-size:small; font-style: italic">' + _(
         'Remove all class attributes from the HTML that do not match any existing CSS rules'))
-    d.m = m = QCheckBox(_('Merge CSS rules with identical selectors'))
+    d.m = m = QCheckBox(_('Merge CSS rules with identical &selectors'))
     m.setChecked(tprefs['merge_identical_selectors'])
     l.addWidget(m)
     d.la3 = label('<span style="font-size:small; font-style: italic">' + _(
         'Merge CSS rules in the same stylesheet that have identical selectors.'
     ' Note that in rare cases merging can result in a change to the effective styling'
     ' of the book, so use with care.'))
-    d.p = p = QCheckBox(_('Merge CSS rules with identical properties'))
+    d.p = p = QCheckBox(_('Merge CSS rules with identical &properties'))
     p.setChecked(tprefs['merge_rules_with_identical_properties'])
     l.addWidget(p)
     d.la4 = label('<span style="font-size:small; font-style: italic">' + _(
         'Merge CSS rules in the same stylesheet that have identical properties.'
     ' Note that in rare cases merging can result in a change to the effective styling'
     ' of the book, so use with care.'))
+    d.u = u = QCheckBox(_('Remove &unreferenced style sheets'))
+    u.setChecked(tprefs['remove_unreferenced_sheets'])
+    l.addWidget(u)
+    d.la5 = label('<span style="font-size:small; font-style: italic">' + _(
+        'Remove stylesheets that are not referenced by any content.'
+    ))
 
     d.bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
     d.l.addWidget(d.bb)
     d.bb.rejected.connect(d.reject)
     d.bb.accepted.connect(d.accept)
-    ret = d.exec_()
+    ret = d.exec()
     ans['remove_unused_classes'] = tprefs['remove_unused_classes'] = c.isChecked()
     ans['merge_identical_selectors'] = tprefs['merge_identical_selectors'] = m.isChecked()
     ans['merge_rules_with_identical_properties'] = tprefs['merge_rules_with_identical_properties'] = p.isChecked()
+    ans['remove_unreferenced_sheets'] = tprefs['remove_unreferenced_sheets'] = u.isChecked()
     if ret != QDialog.DialogCode.Accepted:
         raise Abort()
 
@@ -115,10 +121,10 @@ def show_report(changed, title, report, parent, show_current_diff):
     d.show_changes = False
     if changed:
         b = d.b = d.bb.addButton(_('See what &changed'), QDialogButtonBox.ButtonRole.AcceptRole)
-        b.setIcon(QIcon(I('diff.png'))), b.setAutoDefault(False)
+        b.setIcon(QIcon.ic('diff.png')), b.setAutoDefault(False)
         connect_lambda(b.clicked, d, lambda d: setattr(d, 'show_changes', True))
     b = d.bb.addButton(_('&Copy to clipboard'), QDialogButtonBox.ButtonRole.ActionRole)
-    b.setIcon(QIcon(I('edit-copy.png'))), b.setAutoDefault(False)
+    b.setIcon(QIcon.ic('edit-copy.png')), b.setAutoDefault(False)
 
     def copy_report():
         text = re.sub(r'</.+?>', '\n', report)
@@ -132,7 +138,7 @@ def show_report(changed, title, report, parent, show_current_diff):
     d.bb.rejected.connect(d.reject)
     d.bb.accepted.connect(d.accept)
     d.resize(600, 400)
-    d.exec_()
+    d.exec()
     b.clicked.disconnect()
     if d.show_changes:
         show_current_diff(allow_revert=True)
@@ -177,7 +183,7 @@ class CompressImages(Dialog):
 
     def setup_ui(self):
         from calibre.ebooks.oeb.polish.images import get_compressible_images
-        self.setWindowIcon(QIcon(I('compress-image.png')))
+        self.setWindowIcon(QIcon.ic('compress-image.png'))
         self.h = h = QHBoxLayout(self)
         self.images = i = QListWidget(self)
         h.addWidget(i)
@@ -262,7 +268,7 @@ class CompressImagesProgress(Dialog):
         self.cidone.emit()
 
     def setup_ui(self):
-        self.setWindowIcon(QIcon(I('compress-image.png')))
+        self.setWindowIcon(QIcon.ic('compress-image.png'))
         self.setCursor(Qt.CursorShape.BusyCursor)
         self.setMinimumWidth(350)
         self.l = l = QVBoxLayout(self)
@@ -303,7 +309,7 @@ if __name__ == '__main__':
     c = get_container(sys.argv[-1], tweak_mode=True)
     set_current_container(c)
     d = CompressImages()
-    if d.exec_() == QDialog.DialogCode.Accepted:
+    if d.exec() == QDialog.DialogCode.Accepted:
         pass
     sip.delete(app)
     del app

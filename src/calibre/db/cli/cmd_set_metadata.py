@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -10,7 +9,7 @@ from calibre.ebooks.metadata.book.base import field_from_string
 from calibre.ebooks.metadata.book.serialize import read_cover
 from calibre.ebooks.metadata.opf import get_metadata
 from calibre.srv.changes import metadata
-from polyglot.builtins import iteritems, unicode_type, getcwd
+from polyglot.builtins import iteritems
 
 readonly = False
 version = 0  # change this if you change signature of implementation()
@@ -60,14 +59,14 @@ def option_parser(get_parser, args):
     parser = get_parser(
         _(
             '''
-%prog set_metadata [options] id [/path/to/metadata.opf]
+%prog set_metadata [options] book_id [/path/to/metadata.opf]
 
-Set the metadata stored in the calibre database for the book identified by id
-from the OPF file metadata.opf. id is an id number from the search command. You
-can get a quick feel for the OPF format by using the --as-opf switch to the
-show_metadata command. You can also set the metadata of individual fields with
-the --field option. If you use the --field option, there is no need to specify
-an OPF file.
+Set the metadata stored in the calibre database for the book identified by
+book_id from the OPF file metadata.opf. book_id is a book id number from the
+search command. You can get a quick feel for the OPF format by using the
+--as-opf switch to the show_metadata command. You can also set the metadata of
+individual fields with the --field option. If you use the --field option, there
+is no need to specify an OPF file.
 '''
         )
     )
@@ -147,7 +146,7 @@ def main(opts, args, dbctx):
         with lopen(opf, 'rb') as stream:
             mi = get_metadata(stream)[0]
         if mi.cover:
-            mi.cover = os.path.join(os.path.dirname(opf), os.path.relpath(mi.cover, getcwd()))
+            mi.cover = os.path.join(os.path.dirname(opf), os.path.relpath(mi.cover, os.getcwd()))
         final_mi = dbctx.run('set_metadata', 'opf', book_id, read_cover(mi))
         if not final_mi:
             raise SystemExit(_('No book with id: %s in the database') % book_id)
@@ -181,5 +180,5 @@ def main(opts, args, dbctx):
         if not final_mi:
             raise SystemExit(_('No book with id: %s in the database') % book_id)
 
-    prints(unicode_type(final_mi))
+    prints(str(final_mi))
     return 0

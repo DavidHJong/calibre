@@ -25,7 +25,6 @@ from __python__ import hash_literals, bound_methods
 
 import traceback
 from elementmaker import E
-from gettext import gettext as _
 
 from dom import set_css
 from read_book.cfi import (
@@ -330,6 +329,12 @@ def layout(is_single_page, on_resize):
                     is_full_screen_layout = True
                 if has_svg and svgs.length == 1 and svgs[0].getBoundingClientRect().left < wi:
                     is_full_screen_layout = True
+        if is_full_screen_layout and only_img and cols_per_screen > 1:
+            cols_per_screen = 1
+            col_size = screen_inline
+            col_and_gap = col_size + gap
+            number_of_cols = 1
+            document.body.style.columnWidth = f'100vw'
 
     # Some browser engine, WebKit at least, adjust column sizes to please
     # themselves, unless the container size is an exact multiple, so we check
@@ -454,7 +459,7 @@ def previous_screen_location():
     if is_full_screen_layout:
         return -1
     cc = current_column_location()
-    ans = cc - screen_inline
+    ans = cc - cols_per_screen * col_and_gap
     if ans < 0:
         # We ignore small scrolls (less than 15px) when going to previous
         # screen
@@ -510,7 +515,7 @@ def jump_to_anchor(name):
 
 def scrollable_element(elem):
     # bounding rect calculation for an inline element containing a block
-    # element that spans multiple columns is incorrect. Detet the common case
+    # element that spans multiple columns is incorrect. Detect the common case
     # of this and avoid it. See https://bugs.launchpad.net/calibre/+bug/1918437
     # for a test case.
     if not in_paged_mode() or window.getComputedStyle(elem).display.indexOf('inline') < 0 or not elem.firstElementChild:
@@ -884,10 +889,7 @@ def resize_done():
 
 def auto_scroll_action(action):
     if action is 'toggle':
-        get_boss().send_message('error', title=_('No auto scroll in paged mode'), msg=_(
-            'Switch to flow mode (Viewer preferences->Page layout) to enable auto'
-            ' scrolling'), is_non_critical=True
-        )
+        get_boss().send_message('error', errkey='no-auto-scroll-in-paged-mode', is_non_critical=True)
     return False
 
 

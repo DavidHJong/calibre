@@ -22,6 +22,7 @@
    Copyright (C) 2005 Bram Cohen, Copyright (C) 2005, 2006 Canonical Ltd
 */
 
+#define PY_SSIZE_T_CLEAN
 
 #include <Python.h>
 #include <stdlib.h>
@@ -60,7 +61,7 @@ enum {
 };
 
 
-/* values from this array need to correspont to the order of the enum above */
+/* values from this array need to correspond to the order of the enum above */
 static char *opcode_names[] = {
     "equal",
     "insert",
@@ -586,7 +587,7 @@ load_lines(PyObject *orig, struct line **lines)
         line->data = item;
         line->hash = PyObject_Hash(item);
         if (line->hash == (-1)) {
-            /* Propogate the hash exception */
+            /* Propagate the hash exception */
             size = -1;
             goto cleanup;
         }

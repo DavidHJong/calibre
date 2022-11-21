@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -16,7 +13,7 @@ class PluginWidget(Widget, Ui_Form):
     TITLE = _('TXT output')
     HELP = _('Options specific to')+' TXT '+_('output')
     COMMIT_NAME = 'txt_output'
-    ICON = I('mimetypes/txt.png')
+    ICON = 'mimetypes/txt.png'
 
     def __init__(self, parent, get_option, get_help, db=None, book_id=None):
         Widget.__init__(self, parent, OPTIONS['output']['txt'])

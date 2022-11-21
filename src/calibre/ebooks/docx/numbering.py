@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -14,7 +13,7 @@ from lxml.html.builder import OL, UL, SPAN
 from calibre.ebooks.docx.block_styles import ParagraphStyle
 from calibre.ebooks.docx.char_styles import RunStyle, inherit
 from calibre.ebooks.metadata import roman
-from polyglot.builtins import iteritems, unicode_type
+from polyglot.builtins import iteritems
 
 STYLE_MAP = {
     'aiueo': 'hiragana',
@@ -44,7 +43,7 @@ alphabet_map = {
 }
 
 
-class Level(object):
+class Level:
 
     def __init__(self, namespace, lvl=None):
         self.namespace = namespace
@@ -152,7 +151,7 @@ class Level(object):
         return css
 
 
-class NumberingDefinition(object):
+class NumberingDefinition:
 
     def __init__(self, namespace, parent=None, an_id=None):
         self.namespace = namespace
@@ -174,7 +173,7 @@ class NumberingDefinition(object):
         return ans
 
 
-class Numbering(object):
+class Numbering:
 
     def __init__(self, namespace):
         self.namespace = namespace
@@ -291,7 +290,7 @@ class Numbering(object):
                     seen_instances.add(num_id)
                     p.tag = 'li'
                     p.set('value', '%s' % counter[ilvl])
-                    p.set('list-lvl', unicode_type(ilvl))
+                    p.set('list-lvl', str(ilvl))
                     p.set('list-id', num_id)
                     if lvl.num_template is not None:
                         val = lvl.format_template(counter, ilvl, lvl.num_template)

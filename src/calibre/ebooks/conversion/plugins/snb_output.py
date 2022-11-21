@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2010, Li Fanxi <lifanxi@freemindworld.com>'
 __docformat__ = 'restructuredtext en'
@@ -10,7 +7,6 @@ import os
 from calibre.customize.conversion import OutputFormatPlugin, OptionRecommendation
 from calibre.ptempfile import TemporaryDirectory
 from calibre.constants import __appname__, __version__
-from polyglot.builtins import unicode_type
 
 
 class SNBOutput(OutputFormatPlugin):
@@ -46,7 +42,7 @@ class SNBOutput(OutputFormatPlugin):
             'chapter. Useful for image-only output (eg. comics).')),
         OptionRecommendation(name='snb_full_screen',
             recommended_value=False, level=OptionRecommendation.LOW,
-            help=_('Resize all the images for full screen view. ')),
+            help=_('Resize all the images for full screen mode. ')),
      }
 
     def convert(self, oeb_book, output_path, input_plugin, opts, log):
@@ -75,20 +71,20 @@ class SNBOutput(OutputFormatPlugin):
             # Process Meta data
             meta = oeb_book.metadata
             if meta.title:
-                title = unicode_type(meta.title[0])
+                title = str(meta.title[0])
             else:
                 title = ''
-            authors = [unicode_type(x) for x in meta.creator if x.role == 'aut']
+            authors = [str(x) for x in meta.creator if x.role == 'aut']
             if meta.publisher:
-                publishers = unicode_type(meta.publisher[0])
+                publishers = str(meta.publisher[0])
             else:
                 publishers = ''
             if meta.language:
-                lang = unicode_type(meta.language[0]).upper()
+                lang = str(meta.language[0]).upper()
             else:
                 lang = ''
             if meta.description:
-                abstract = unicode_type(meta.description[0])
+                abstract = str(meta.description[0])
             else:
                 abstract = ''
 
@@ -255,7 +251,7 @@ if __name__ == '__main__':
     from calibre.ebooks.conversion.preprocess import HTMLPreProcessor
     from calibre.customize.profiles import HanlinV3Output
 
-    class OptionValues(object):
+    class OptionValues:
         pass
 
     opts = OptionValues()

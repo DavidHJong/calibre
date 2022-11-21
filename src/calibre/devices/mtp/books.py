@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 
 
 __license__   = 'GPL v3'
@@ -46,7 +45,7 @@ class Book(Metadata):
         Metadata.__init__(self, _('Unknown'), other=other)
         self.storage_id, self.lpath = storage_id, lpath
         self.lpath = self.path = self.lpath.replace(os.sep, '/')
-        self.mtp_relpath = tuple([icu_lower(x) for x in self.lpath.split('/')])
+        self.mtp_relpath = tuple(icu_lower(x) for x in self.lpath.split('/'))
         self.datetime = utcnow().timetuple()
         self.thumbail = None
 

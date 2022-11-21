@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 
 
 __license__   = 'GPL v3'
@@ -7,7 +6,7 @@ __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import hashlib, numbers
-from polyglot.builtins import map, iteritems
+from polyglot.builtins import iteritems
 
 from qt.core import QBuffer, QByteArray, QImage, Qt, QColor, qRgba, QPainter
 
@@ -23,7 +22,7 @@ from polyglot.builtins import as_unicode
 PDFVER = b'%PDF-1.4'  # 1.4 is needed for XMP metadata
 
 
-class IndirectObjects(object):
+class IndirectObjects:
 
     def __init__(self):
         self._list = []
@@ -83,7 +82,7 @@ class IndirectObjects(object):
 class Page(Stream):
 
     def __init__(self, parentref, *args, **kwargs):
-        super(Page, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.page_dict = Dictionary({
             'Type': Name('Page'),
             'Parent': parentref,
@@ -152,7 +151,7 @@ class Page(Stream):
         return ret
 
 
-class Path(object):
+class Path:
 
     def __init__(self):
         self.ops = []
@@ -173,14 +172,14 @@ class Path(object):
 class Catalog(Dictionary):
 
     def __init__(self, pagetree):
-        super(Catalog, self).__init__({'Type':Name('Catalog'),
+        super().__init__({'Type':Name('Catalog'),
             'Pages': pagetree})
 
 
 class PageTree(Dictionary):
 
     def __init__(self, page_size):
-        super(PageTree, self).__init__({'Type':Name('Pages'),
+        super().__init__({'Type':Name('Pages'),
             'MediaBox':Array([0, 0, page_size[0], page_size[1]]),
             'Kids':Array(), 'Count':0,
         })
@@ -199,7 +198,7 @@ class PageTree(Dictionary):
             return -1
 
 
-class HashingStream(object):
+class HashingStream:
 
     def __init__(self, f):
         self.f = f
@@ -259,7 +258,7 @@ class Metadata(Stream):
         d['Subtype'] = Name('XML')
 
 
-class PDFStream(object):
+class PDFStream:
 
     PATH_OPS = {
         # stroke fill   fill-rule
@@ -278,7 +277,7 @@ class PDFStream(object):
         self.stream = HashingStream(stream)
         self.compress = compress
         self.write_line(PDFVER)
-        self.write_line(u'%íì¦"'.encode('utf-8'))
+        self.write_line('%íì¦"'.encode())
         creator = ('%s %s [https://calibre-ebook.com]'%(__appname__,
                                     __version__))
         self.write_line('%% Created by %s'%creator)
@@ -301,6 +300,7 @@ class PDFStream(object):
         i = QImage(1, 1, QImage.Format.Format_ARGB32)
         i.fill(qRgba(0, 0, 0, 255))
         self.alpha_bit = i.constBits().asstring(4).find(b'\xff')
+        self.bw_image_color_table = frozenset((QColor(Qt.GlobalColor.black).rgba(), QColor(Qt.GlobalColor.white).rgba()))
 
     @property
     def page_tree(self):
@@ -416,8 +416,8 @@ class PDFStream(object):
         self.objects.commit(r, self.stream)
         return r
 
-    def add_jpeg_image(self, img_data, w, h, cache_key=None):
-        return self.write_image(img_data, w, h, 32, dct=True)
+    def add_jpeg_image(self, img_data, w, h, cache_key=None, depth=32):
+        return self.write_image(img_data, w, h, depth, dct=True)
 
     def add_image(self, img, cache_key):
         ref = self.get_image(cache_key)
@@ -426,9 +426,7 @@ class PDFStream(object):
 
         fmt = img.format()
         image = QImage(img)
-        if (image.depth() == 1 and img.colorTable().size() == 2 and
-            img.colorTable().at(0) == QColor(Qt.GlobalColor.black).rgba() and
-            img.colorTable().at(1) == QColor(Qt.GlobalColor.white).rgba()):
+        if image.depth() == 1 and frozenset(img.colorTable()) == self.bw_image_color_table:
             if fmt == QImage.Format.Format_MonoLSB:
                 image = image.convertToFormat(QImage.Format.Format_Mono)
             fmt = QImage.Format.Format_Mono

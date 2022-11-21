@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__   = 'GPL v3'
@@ -21,7 +20,6 @@ from calibre.utils.imghdr import identify
 from calibre import guess_type, guess_all_extensions, prints, force_unicode
 from calibre.ebooks.metadata import MetaInformation, check_isbn
 from calibre.ebooks.chardet import xml_to_unicode
-from polyglot.builtins import unicode_type
 from polyglot.binary import as_base64_unicode
 
 
@@ -38,7 +36,7 @@ def XLINK(tag):
     return '{%s}%s'%(NAMESPACES['xlink'], tag)
 
 
-class Context(object):
+class Context:
 
     def __init__(self, root):
         try:
@@ -57,7 +55,7 @@ class Context(object):
     def get_or_create(self, parent, tag, attribs={}, at_start=True):
         xpathstr='./fb:'+tag
         for n, v in attribs.items():
-            xpathstr += '[@%s="%s"]' % (n, v)
+            xpathstr += f'[@{n}="{v}"]'
         ans = self.XPath(xpathstr)(parent)
         if ans:
             ans = ans[0]
@@ -66,7 +64,7 @@ class Context(object):
         return ans
 
     def create_tag(self, parent, tag, attribs={}, at_start=True):
-        ans = parent.makeelement('{%s}%s' % (self.fb_ns, tag))
+        ans = parent.makeelement(f'{{{self.fb_ns}}}{tag}')
         ans.attrib.update(attribs)
         if at_start:
             parent.insert(0, ans)
@@ -117,7 +115,7 @@ def get_metadata(stream):
 
     # fallback for book_title
     if book_title:
-        book_title = unicode_type(book_title)
+        book_title = str(book_title)
     else:
         book_title = force_unicode(os.path.splitext(
             os.path.basename(getattr(stream, 'name',
@@ -163,7 +161,7 @@ def get_metadata(stream):
 
 def _parse_authors(root, ctx):
     authors = []
-    # pick up authors but only from 1 secrion <title-info>; otherwise it is not consistent!
+    # pick up authors but only from 1 section <title-info>; otherwise it is not consistent!
     # Those are fallbacks: <src-title-info>, <document-info>
     author = None
     for author_sec in ['title-info', 'src-title-info', 'document-info']:
@@ -201,7 +199,7 @@ def _parse_author(elm_author, ctx):
         if nname:
             author = nname
 
-    return author
+    return str(author)
 
 
 def _parse_book_title(root, ctx):
@@ -210,7 +208,7 @@ def _parse_book_title(root, ctx):
     xp_ti = '//fb:title-info/fb:book-title/text()'
     xp_pi = '//fb:publish-info/fb:book-title/text()'
     xp_si = '//fb:src-title-info/fb:book-title/text()'
-    book_title = ctx.XPath('normalize-space(%s|%s|%s)' % (xp_ti, xp_pi, xp_si))(root)
+    book_title = ctx.XPath(f'normalize-space({xp_ti}|{xp_pi}|{xp_si})')(root)
 
     return book_title
 
@@ -244,17 +242,17 @@ def _parse_cover_data(root, imgid, mi, ctx):
                 fmt = identify(cdata)[0]
                 mi.cover_data = (fmt, cdata)
         else:
-            prints("WARNING: Unsupported coverpage mime-type '%s' (id=#%s)" % (mimetype, imgid))
+            prints(f"WARNING: Unsupported coverpage mime-type '{mimetype}' (id=#{imgid})")
 
 
 def _parse_tags(root, mi, ctx):
-    # pick up genre but only from 1 secrion <title-info>; otherwise it is not consistent!
+    # pick up genre but only from 1 section <title-info>; otherwise it is not consistent!
     # Those are fallbacks: <src-title-info>
     for genre_sec in ['title-info', 'src-title-info']:
         # -- i18n Translations-- ?
         tags = ctx.XPath('//fb:%s/fb:genre/text()' % genre_sec)(root)
         if tags:
-            mi.tags = list(map(unicode_type, tags))
+            mi.tags = list(map(str, tags))
             break
 
 
@@ -265,7 +263,7 @@ def _parse_series(root, mi, ctx):
     xp_ti = '//fb:title-info/fb:sequence[1]'
     xp_pi = '//fb:publish-info/fb:sequence[1]'
 
-    elms_sequence = ctx.XPath('%s|%s' % (xp_ti, xp_pi))(root)
+    elms_sequence = ctx.XPath(f'{xp_ti}|{xp_pi}')(root)
     if elms_sequence:
         mi.series = elms_sequence[0].get('name', None)
         if mi.series:
@@ -306,7 +304,7 @@ def _parse_pubdate(root, mi, ctx):
     year = ctx.XPath('number(//fb:publish-info/fb:year/text())')(root)
     if float.is_integer(year):
         # only year is available, so use 2nd of June
-        mi.pubdate = parse_only_date(unicode_type(int(year)))
+        mi.pubdate = parse_only_date(str(int(year)))
 
 
 def _parse_language(root, mi, ctx):

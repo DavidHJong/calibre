@@ -6,6 +6,7 @@
  */
 
 #define UNICODE
+#define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
 #include <openssl/rand.h>
@@ -164,7 +165,7 @@ static void free_cert(PyObject *capsule) {
     if (Cert) X509_free(Cert);
 }
 
-/* Presently this just uses a random number, but a more appealling solution
+/* Presently this just uses a random number, but a more appealing solution
  * is to switch to using a hash of certain key elements. Apparently Verisign do
  * something similar and it seems like a damned good idea. The suggested
  * fields to hash are
@@ -292,7 +293,8 @@ static PyObject* serialize_cert(PyObject *self, PyObject *args) {
     if (!mem) return set_error("BIO_new");
     if (!PEM_write_bio_X509(mem, cert)) { BIO_free(mem); return set_error("PEM_write_bio_X509"); }
     sz = BIO_get_mem_data(mem, &p);
-    ans = Py_BuildValue("s#", p, sz);
+    Py_ssize_t psz = sz;
+    ans = Py_BuildValue("s#", p, psz);
     BIO_free(mem);
     return ans;
 }
@@ -313,7 +315,8 @@ static PyObject* cert_info(PyObject *self, PyObject *args) {
     if (!mem) return set_error("BIO_new");
     if (!X509_print_ex(mem, cert, XN_FLAG_COMPAT, X509_FLAG_COMPAT)) { BIO_free(mem); return set_error("X509_print_ex"); }
     sz = BIO_get_mem_data(mem, &p);
-    ans = Py_BuildValue("s#", p, sz);
+    Py_ssize_t psz = sz;
+    ans = Py_BuildValue("s#", p, psz);
     BIO_free(mem);
     return ans;
 }
@@ -343,7 +346,8 @@ static PyObject* serialize_rsa_key(PyObject *self, PyObject *args) {
     else ok = PEM_write_bio_PrivateKey(mem, key, NULL, NULL, 0, 0, NULL);
     if (!ok) { set_error("PEM_write_bio_PrivateKey"); goto error; }
     sz = BIO_get_mem_data(mem, &p);
-    ans = Py_BuildValue("s#", p, sz);
+    Py_ssize_t psz = sz;
+    ans = Py_BuildValue("s#", p, psz);
 error:
     if (mem) BIO_free(mem);
     if (key) EVP_PKEY_free(key);

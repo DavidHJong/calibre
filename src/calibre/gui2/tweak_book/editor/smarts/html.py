@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -16,6 +15,7 @@ from qt.core import Qt, QTextCursor, QTextEdit
 from calibre import prepare_string_for_xml, xml_entity_to_unicode
 from calibre.ebooks.oeb.base import css_text
 from calibre.ebooks.oeb.polish.container import OEB_DOCS
+from calibre.ebooks.oeb.polish.utils import BLOCK_TAG_NAMES
 from calibre.gui2 import error_dialog
 from calibre.gui2.tweak_book import current_container, tprefs
 from calibre.gui2.tweak_book.editor.smarts import NullSmarts
@@ -27,14 +27,13 @@ from calibre.gui2.tweak_book.editor.syntax.html import (
     ATTR_END, ATTR_NAME, ATTR_START, ATTR_VALUE
 )
 from calibre.utils.icu import utf16_length
-from polyglot.builtins import unicode_type
 
 get_offset = itemgetter(0)
 PARAGRAPH_SEPARATOR = '\u2029'
 DEFAULT_LINK_TEMPLATE = '<a href="_TARGET_">_TEXT_</a>'
 
 
-class Tag(object):
+class Tag:
 
     def __init__(self, start_block, tag_start, end_block, tag_end, self_closing=False):
         self.start_block, self.end_block = start_block, end_block
@@ -46,7 +45,7 @@ class Tag(object):
         self.self_closing = self_closing
 
     def __repr__(self):
-        return '<%s start_block=%s start_offset=%s end_block=%s end_offset=%s self_closing=%s>' % (
+        return '<{} start_block={} start_offset={} end_block={} end_offset={} self_closing={}>'.format(
             self.name, self.start_block.blockNumber(), self.start_offset, self.end_block.blockNumber(), self.end_offset, self.self_closing)
     __str__ = __repr__
 
@@ -234,7 +233,7 @@ def rename_tag(cursor, opening_tag, closing_tag, new_name, insert=False):
     with edit_block(cursor):
         text = select_tag(cursor, closing_tag)
         if insert:
-            text = '</%s>%s' % (new_name, text)
+            text = f'</{new_name}>{text}'
         else:
             text = re.sub(r'^<\s*/\s*[a-zA-Z0-9]+', '</%s' % new_name, text)
         cursor.insertText(text)
@@ -284,13 +283,6 @@ def ensure_not_within_tag_definition(cursor, forward=True):
             return True
 
     return False
-
-
-BLOCK_TAG_NAMES = frozenset((
-    'address', 'article', 'aside', 'blockquote', 'center', 'dir', 'fieldset',
-    'isindex', 'menu', 'noframes', 'hgroup', 'noscript', 'pre', 'section',
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'p', 'div', 'dd', 'dl', 'ul',
-    'ol', 'li', 'body', 'td', 'th'))
 
 
 def find_closest_containing_block_tag(block, offset, block_tag_names=BLOCK_TAG_NAMES):
@@ -354,10 +346,10 @@ class Smarts(NullSmarts):
             a = QTextEdit.ExtraSelection()
             a.cursor, a.format = editor.textCursor(), editor.match_paren_format
             a.cursor.setPosition(tag.start_block.position()), a.cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
-            text = unicode_type(a.cursor.selectedText())
+            text = str(a.cursor.selectedText())
             start_pos = utf16_length(text[:tag.start_offset])
             a.cursor.setPosition(tag.end_block.position()), a.cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
-            text = unicode_type(a.cursor.selectedText())
+            text = str(a.cursor.selectedText())
             end_pos = utf16_length(text[:tag.end_offset + 1])
             a.cursor.setPosition(tag.start_block.position() + start_pos)
             a.cursor.setPosition(tag.end_block.position() + end_pos, QTextCursor.MoveMode.KeepAnchor)
@@ -422,6 +414,14 @@ class Smarts(NullSmarts):
         tag = find_closest_containing_block_tag(block, offset)
 
         if tag is not None:
+            if tag.name == 'body':
+                ntag = find_closest_containing_block_tag(block, offset + 1)
+                if ntag is not None and ntag.name != 'body':
+                    tag = ntag
+                elif offset > 0:
+                    ntag = find_closest_containing_block_tag(block, offset - 1)
+                    if ntag is not None and ntag.name != 'body':
+                        tag = ntag
             closing_tag = find_closing_tag(tag)
             if closing_tag is None:
                 return error_dialog(editor, _('Invalid HTML'), _(
@@ -495,7 +495,7 @@ class Smarts(NullSmarts):
         pos = min(c.position(), c.anchor())
         m = re.match(r'[a-zA-Z0-9:-]+', name)
         cname = name if m is None else m.group()
-        c.insertText('<{0}>{1}</{2}>'.format(name, text, cname))
+        c.insertText(f'<{name}>{text}</{cname}>')
         c.setPosition(pos + 2 + len(name))
         editor.setTextCursor(c)
 
@@ -669,6 +669,11 @@ class Smarts(NullSmarts):
         ev_text = ev.text()
         key = ev.key()
         is_xml = editor.syntax == 'xml'
+        mods = ev.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.MetaModifier | Qt.KeyboardModifier.KeypadModifier)
+        shifted_mods = ev.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.MetaModifier |
+            Qt.KeyboardModifier.KeypadModifier | Qt.KeyboardModifier.ShiftModifier)
 
         if tprefs['replace_entities_as_typed'] and (
                 ';' in ev_text or
@@ -715,18 +720,19 @@ class Smarts(NullSmarts):
         if key == Qt.Key.Key_Home and smart_home(editor, ev):
             return True
 
-        if key == Qt.Key.Key_Tab and smart_tab(editor, ev):
-            return True
+        if key == Qt.Key.Key_Tab:
+            if not mods & Qt.KeyboardModifier.ControlModifier and smart_tab(editor, ev):
+                return True
 
         if key == Qt.Key.Key_Backspace and smart_backspace(editor, ev):
             return True
 
         if key in (Qt.Key.Key_BraceLeft, Qt.Key.Key_BraceRight):
-            mods = ev.modifiers()
-            if int(mods & Qt.KeyboardModifier.ControlModifier):
+            if mods == Qt.KeyboardModifier.ControlModifier:
                 if self.jump_to_enclosing_tag(editor, key == Qt.Key.Key_BraceLeft):
                     return True
-        if key == Qt.Key.Key_T and int(ev.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)):
+        if key == Qt.Key.Key_T and shifted_mods in (
+                Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier, Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
             return self.select_tag_contents(editor)
 
         return False

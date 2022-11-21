@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -11,6 +10,7 @@ from functools import partial
 
 from qt.core import Qt, QListWidgetItem
 
+from calibre.gui2.actions.choose_library import get_change_library_action_plugin
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, Setting
 from calibre.gui2.preferences.behavior_ui import Ui_Form
 from calibre.gui2 import config, info_dialog, dynamic, gprefs
@@ -20,7 +20,6 @@ from calibre.ebooks import BOOK_EXTENSIONS
 from calibre.ebooks.oeb.iterator import is_supported
 from calibre.constants import iswindows
 from calibre.utils.icu import sort_key
-from polyglot.builtins import unicode_type, range
 
 
 def input_order_drop_event(self, ev):
@@ -70,16 +69,14 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
         self.input_up_button.clicked.connect(self.up_input)
         self.input_down_button.clicked.connect(self.down_input)
+        self.opt_input_order.set_movement_functions(self.up_input, self.down_input)
         self.opt_input_order.dropEvent = partial(input_order_drop_event, self)
         for signal in ('Activated', 'Changed', 'DoubleClicked', 'Clicked'):
             signal = getattr(self.opt_internally_viewed_formats, 'item'+signal)
             signal.connect(self.internally_viewed_formats_changed)
 
         r('bools_are_tristate', db.prefs, restart_required=True)
-        r = self.register
-        choices = [(_('Default'), 'default'), (_('Compact Metadata'), 'alt1'),
-                   (_('All on 1 tab'), 'alt2')]
-        r('edit_metadata_single_layout', gprefs, choices=choices)
+        r('numeric_collation', prefs, restart_required=True)
 
     def initialize(self):
         ConfigWidgetBase.initialize(self)
@@ -94,7 +91,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
     def commit(self):
         input_map = prefs['input_format_order']
-        input_cols = [unicode_type(self.opt_input_order.item(i).data(Qt.ItemDataRole.UserRole) or '') for
+        input_cols = [str(self.opt_input_order.item(i).data(Qt.ItemDataRole.UserRole) or '') for
                 i in range(self.opt_input_order.count())]
         if input_map != input_cols:
             prefs['input_format_order'] = input_cols
@@ -102,7 +99,10 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         old = config['internally_viewed_formats']
         if fmts != old:
             config['internally_viewed_formats'] = fmts
-        return ConfigWidgetBase.commit(self)
+        ret = ConfigWidgetBase.commit(self)
+        # Signal a possible change of the VL at startup opt
+        get_change_library_action_plugin().rebuild_change_library_menus.emit()
+        return ret
 
     # Internally viewed formats {{{
     def internally_viewed_formats_changed(self, *args):
@@ -139,7 +139,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         viewer = self.opt_internally_viewed_formats
         for i in range(viewer.count()):
             if viewer.item(i).checkState() == Qt.CheckState.Checked:
-                fmts.append(unicode_type(viewer.item(i).text()))
+                fmts.append(str(viewer.item(i).text()))
         return fmts
     # }}}
 

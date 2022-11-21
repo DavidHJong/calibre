@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -8,8 +7,6 @@ from ctypes import windll
 from ctypes import wintypes
 from collections import namedtuple
 from contextlib import contextmanager
-
-from calibre.constants import is64bit
 
 # Wraps (part of) the IPHelper API, useful to enumerate the network routes and
 # adapters on the local machine
@@ -256,7 +253,7 @@ GetProcessHeap.argtypes = []
 GetProcessHeap.restype = wintypes.HANDLE
 
 HeapAlloc = windll.kernel32.HeapAlloc
-HeapAlloc.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.c_uint64 if is64bit else ctypes.c_uint32]
+HeapAlloc.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.c_uint64]
 HeapAlloc.restype = wintypes.LPVOID
 
 HeapFree = windll.kernel32.HeapFree

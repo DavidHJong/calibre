@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2019, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -10,7 +9,7 @@ from itertools import count
 counter = count()
 
 
-class WebStoreDialog(object):
+class WebStoreDialog:
 
     def __init__(
         self, gui, base_url, parent=None, detail_url=None, create_browser=None
@@ -28,7 +27,7 @@ class WebStoreDialog(object):
     def set_tags(self, tags):
         self.tags = tags
 
-    def exec_(self):
+    def exec(self):
         data = {
             'base_url': self.base_url,
             'detail_url': self.detail_url,
@@ -44,3 +43,4 @@ class WebStoreDialog(object):
             data = data.decode('ascii')
         args = ['store-dialog', data]
         self.gui.job_manager.launch_gui_app(args[0], kwargs={'args': args})
+    exec_ = exec

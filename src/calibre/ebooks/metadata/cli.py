@@ -1,5 +1,3 @@
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
@@ -7,7 +5,7 @@ __docformat__ = 'restructuredtext en'
 '''
 ebook-meta
 '''
-import sys, os
+import sys, os, unicodedata
 
 from calibre.utils.config import StringConfig
 from calibre.customize.ui import metadata_readers, metadata_writers, force_identifiers
@@ -17,7 +15,7 @@ from calibre.ebooks.metadata import string_to_authors, authors_to_sort_string, \
 from calibre.ebooks.lrf.meta import LRFMetaFile
 from calibre import prints
 from calibre.utils.date import parse_date
-from polyglot.builtins import iteritems, unicode_type, getcwd
+from polyglot.builtins import iteritems
 
 USAGE=_('%prog ebook_file [options]\n') + \
 _('''
@@ -110,6 +108,10 @@ def option_parser():
     return config().option_parser(USAGE.format(ft, w))
 
 
+def normalize(x):
+    return unicodedata.normalize('NFC', x)
+
+
 def do_set_metadata(opts, mi, stream, stream_type):
     mi = MetaInformation(mi)
     for x in ('guide', 'toc', 'manifest', 'spine'):
@@ -164,7 +166,7 @@ def do_set_metadata(opts, mi, stream, stream_type):
 
 def main(args=sys.argv):
     parser = option_parser()
-    opts, args = parser.parse_args(args)
+    opts, args = parser.parse_args(list(map(normalize, args)))
     if len(args) < 2:
         parser.print_help()
         prints(_('No file specified'), file=sys.stderr)
@@ -183,7 +185,7 @@ def main(args=sys.argv):
         mi = get_metadata(stream, stream_type, force_read_metadata=True)
     if trying_to_set:
         prints(_('Original metadata')+'::')
-    metadata = unicode_type(mi)
+    metadata = str(mi)
     if trying_to_set:
         metadata = '\t'+'\n\t'.join(metadata.split('\n'))
     prints(metadata)
@@ -200,7 +202,7 @@ def main(args=sys.argv):
                     lrf.book_id = opts.lrf_bookid
             mi = get_metadata(stream, stream_type, force_read_metadata=True)
         prints('\n' + _('Changed metadata') + '::')
-        metadata = unicode_type(mi)
+        metadata = str(mi)
         metadata = '\t'+'\n\t'.join(metadata.split('\n'))
         prints(metadata)
         if lrf is not None:
@@ -208,7 +210,7 @@ def main(args=sys.argv):
 
     if opts.to_opf is not None:
         from calibre.ebooks.metadata.opf2 import OPFCreator
-        opf = OPFCreator(getcwd(), mi)
+        opf = OPFCreator(os.getcwd(), mi)
         with open(opts.to_opf, 'wb') as f:
             opf.render(f)
         prints(_('OPF created in'), opts.to_opf)

@@ -1,4 +1,3 @@
-
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
@@ -6,7 +5,6 @@ import os, sys, zipfile, importlib, enum
 
 from calibre.constants import numeric_version, iswindows, ismacos
 from calibre.ptempfile import PersistentTemporaryFile
-from polyglot.builtins import unicode_type
 
 if iswindows:
     platform = 'windows'
@@ -30,7 +28,7 @@ class PluginInstallationType(enum.IntEnum):
     BUILTIN = 3
 
 
-class Plugin(object):  # {{{
+class Plugin:  # {{{
     '''
     A calibre plugin. Useful members include:
 
@@ -148,19 +146,9 @@ class Plugin(object):  # {{{
         from calibre.gui2 import gprefs
 
         prefname = 'plugin config dialog:'+self.type + ':' + self.name
-        geom = gprefs.get(prefname, None)
-
         config_dialog = QDialog(parent)
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         v = QVBoxLayout(config_dialog)
-
-        def size_dialog():
-            if geom is None:
-                config_dialog.resize(config_dialog.sizeHint())
-            else:
-                from qt.core import QApplication
-                QApplication.instance().safe_restore_geometry(config_dialog, geom)
-
         button_box.accepted.connect(config_dialog.accept)
         button_box.rejected.connect(config_dialog.reject)
         config_dialog.setWindowTitle(_('Customize') + ' ' + self.name)
@@ -178,8 +166,8 @@ class Plugin(object):  # {{{
         if config_widget is not None:
             v.addWidget(config_widget)
             v.addWidget(button_box)
-            size_dialog()
-            config_dialog.exec_()
+            config_dialog.restore_geometry(gprefs, prefname)
+            config_dialog.exec()
 
             if config_dialog.result() == QDialog.DialogCode.Accepted:
                 if hasattr(config_widget, 'validate'):
@@ -203,16 +191,14 @@ class Plugin(object):  # {{{
             sc = QLineEdit(sc, config_dialog)
             v.addWidget(sc)
             v.addWidget(button_box)
-            size_dialog()
-            config_dialog.exec_()
+            config_dialog.restore_geometry(gprefs, prefname)
+            config_dialog.exec()
 
             if config_dialog.result() == QDialog.DialogCode.Accepted:
-                sc = unicode_type(sc.text()).strip()
+                sc = str(sc.text()).strip()
                 customize_plugin(self, sc)
 
-        geom = bytearray(config_dialog.saveGeometry())
-        gprefs[prefname] = geom
-
+        config_dialog.save_geometry(gprefs, prefname)
         return config_dialog.result()
 
     def load_resources(self, names):
@@ -514,7 +500,7 @@ class CatalogPlugin(Plugin):  # {{{
 
         db.search(opts.search_text)
 
-        if opts.sort_by:
+        if getattr(opts, 'sort_by', None):
             # 2nd arg = ascending
             db.sort(opts.sort_by, True)
         return db.get_data_as_dict(ids=opts.ids)
@@ -532,7 +518,7 @@ class CatalogPlugin(Plugin):  # {{{
                 all_custom_fields.add(field+'_index')
         all_fields = all_std_fields.union(all_custom_fields)
 
-        if opts.fields != 'all':
+        if getattr(opts, 'fields', 'all') != 'all':
             # Make a list from opts.fields
             of = [x.strip() for x in opts.fields.split(',')]
             requested_fields = set(of)
@@ -567,7 +553,7 @@ class CatalogPlugin(Plugin):  # {{{
         from calibre.ptempfile import PersistentTemporaryDirectory
 
         if not type(self) in builtin_plugins and self.name not in config['disabled_plugins']:
-            files_to_copy = ["%s.%s" % (self.name.lower(),ext) for ext in ["ui","py"]]
+            files_to_copy = [f"{self.name.lower()}.{ext}" for ext in ["ui","py"]]
             resources = zipfile.ZipFile(self.plugin_path,'r')
 
             if self.resources_path is None:
@@ -577,7 +563,7 @@ class CatalogPlugin(Plugin):  # {{{
                 try:
                     resources.extract(file, self.resources_path)
                 except:
-                    print(" customize:__init__.initialize(): %s not found in %s" % (file, os.path.basename(self.plugin_path)))
+                    print(f" customize:__init__.initialize(): {file} not found in {os.path.basename(self.plugin_path)}")
                     continue
             resources.close()
 

@@ -1,5 +1,3 @@
-
-
 '''
 Created on 25 May 2010
 
@@ -252,6 +250,16 @@ def _builtin_field_metadata():
                            'is_custom':False,
                            'is_category':False,
                            'is_csp': False}),
+            ('in_tag_browser', {'table':None,
+                           'column':None,
+                           'datatype':'text',
+                           'is_multiple':{},
+                           'kind':'field',
+                           'name': None,
+                           'search_terms':['in_tag_browser'],
+                           'is_custom':False,
+                           'is_category':False,
+                           'is_csp': False}),
             ('series_index',{'table':None,
                              'column':None,
                              'datatype':'float',
@@ -326,7 +334,7 @@ def _builtin_field_metadata():
 # }}}
 
 
-class FieldMetadata(object):
+class FieldMetadata:
     '''
     key: the key to the dictionary is:
     - for standard fields, the metadata field name.
@@ -422,8 +430,7 @@ class FieldMetadata(object):
         del self._tb_cats[key]
 
     def __iter__(self):
-        for key in self._tb_cats:
-            yield key
+        yield from self._tb_cats
 
     def __contains__(self, key):
         return key in self._tb_cats or key == 'title_sort'
@@ -463,7 +470,7 @@ class FieldMetadata(object):
         return [k for k in self._tb_cats.keys()
                 if self._tb_cats[k]['kind']=='field' and
                    self._tb_cats[k]['datatype'] is not None and
-                   k not in ('au_map', 'marked', 'ondevice', 'cover', 'series_sort') and
+                   k not in ('au_map', 'marked', 'ondevice', 'cover', 'series_sort', 'in_tag_browser') and
                    not self.is_series_index(k)]
 
     def standard_field_keys(self):
@@ -484,8 +491,7 @@ class FieldMetadata(object):
         return [k for k in self._tb_cats.keys() if self._tb_cats[k]['kind']=='field']
 
     def iterkeys(self):
-        for key in self._tb_cats:
-            yield key
+        yield from self._tb_cats
 
     def itervalues(self):
         return itervalues(self._tb_cats)
@@ -499,8 +505,7 @@ class FieldMetadata(object):
     iter_items = iteritems
 
     def custom_iteritems(self):
-        for key, meta in iteritems(self._tb_custom_fields):
-            yield (key, meta)
+        yield from iteritems(self._tb_custom_fields)
 
     def items(self):
         return list(self.iter_items())

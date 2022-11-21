@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2020, Kovid Goyal <kovid at kovidgoyal.net>
 
 import json
@@ -18,8 +17,9 @@ from calibre.constants import (
     builtin_colors_dark, builtin_colors_light, builtin_decorations
 )
 from calibre.ebooks.epub.cfi.parse import cfi_sort_key
-from calibre.gui2 import error_dialog, is_dark_theme
+from calibre.gui2 import error_dialog, is_dark_theme, safe_open_url
 from calibre.gui2.dialogs.confirm_delete import confirm
+from calibre.gui2.gestures import GestureManager
 from calibre.gui2.library.annotations import (
     Details, Export as ExportBase, render_highlight_as_text, render_notes
 )
@@ -29,9 +29,10 @@ from calibre.gui2.viewer.search import SearchInput
 from calibre.gui2.viewer.shortcuts import get_shortcut_for, index_to_key_sequence
 from calibre.gui2.widgets2 import Dialog
 from calibre_extensions.progress_indicator import set_no_activate_on_click
-from polyglot.builtins import range
 
 decoration_cache = {}
+highlight_role = Qt.ItemDataRole.UserRole
+section_role = highlight_role + 1
 
 
 @lru_cache(maxsize=8)
@@ -167,7 +168,7 @@ class Highlights(QTreeWidget):
         QTreeWidget.__init__(self, parent)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
-        self.default_decoration = QIcon(I('blank.png'))
+        self.default_decoration = QIcon.ic('blank.png')
         self.setHeaderHidden(True)
         self.num_of_items = 0
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -177,27 +178,34 @@ class Highlights(QTreeWidget):
         self.uuid_map = {}
         self.section_font = QFont(self.font())
         self.section_font.setItalic(True)
+        self.gesture_manager = GestureManager(self)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+    def viewportEvent(self, ev):
+        if hasattr(self, 'gesture_manager'):
+            ret = self.gesture_manager.handle_event(ev)
+            if ret is not None:
+                return ret
+        return super().viewportEvent(ev)
 
     def show_context_menu(self, point):
         index = self.indexAt(point)
-        h = index.data(Qt.ItemDataRole.UserRole)
+        h = index.data(highlight_role)
         self.context_menu = m = QMenu(self)
         if h is not None:
-            m.addAction(QIcon(I('edit_input.png')), _('Modify this highlight'), self.edit_requested.emit)
-            m.addAction(QIcon(I('edit_input.png')), _('Edit notes for this highlight'), self.edit_notes_requested.emit)
-            m.addAction(QIcon(I('trash.png')), ngettext(
+            m.addAction(QIcon.ic('edit_input.png'), _('Modify this highlight'), self.edit_requested.emit)
+            m.addAction(QIcon.ic('modified.png'), _('Edit notes for this highlight'), self.edit_notes_requested.emit)
+            m.addAction(QIcon.ic('trash.png'), ngettext(
                 'Delete this highlight', 'Delete selected highlights', len(self.selectedItems())
             ), self.delete_requested.emit)
-            if h.get('notes'):
-                m.addAction(QIcon(I('modified.png')), _('Edit notes for this highlight'), self.edit_notes_requested.emit)
         m.addSeparator()
-        m.addAction(_('Expand all'), self.expandAll)
-        m.addAction(_('Collapse all'), self.collapseAll)
+        m.addAction(QIcon.ic('plus.png'), _('Expand all'), self.expandAll)
+        m.addAction(QIcon.ic('minus.png'), _('Collapse all'), self.collapseAll)
         self.context_menu.popup(self.mapToGlobal(point))
         return True
 
     def current_item_changed(self, current, previous):
-        self.current_highlight_changed.emit(current.data(0, Qt.ItemDataRole.UserRole) if current is not None else None)
+        self.current_highlight_changed.emit(current.data(0, highlight_role) if current is not None else None)
 
     def load(self, highlights, preserve_state=False):
         s = self.style()
@@ -207,42 +215,61 @@ class Highlights(QTreeWidget):
             for i in range(root.childCount()):
                 chapter = root.child(i)
                 if chapter.isExpanded():
-                    expanded_chapters.add(chapter.data(0, Qt.ItemDataRole.DisplayRole))
+                    expanded_chapters.add(chapter.data(0, section_role))
         icon_size = s.pixelMetric(QStyle.PixelMetric.PM_SmallIconSize, None, self)
         dpr = self.devicePixelRatioF()
         is_dark = is_dark_theme()
         self.clear()
         self.uuid_map = {}
         highlights = (h for h in highlights if not h.get('removed') and h.get('highlighted_text'))
-        section_map = defaultdict(list)
-        section_tt_map = {}
-        for h in self.sorted_highlights(highlights):
-            tfam = h.get('toc_family_titles') or ()
-            if tfam:
-                tsec = tfam[0]
-                lsec = tfam[-1]
-            else:
-                tsec = h.get('top_level_section_title')
-                lsec = h.get('lowest_level_section_title')
-            sec = lsec or tsec or _('Unknown')
+        smap = {}
+        title_counts = defaultdict(lambda : 0)
+
+        @lru_cache
+        def tooltip_for(tfam):
+            tooltip = ''
             if len(tfam) > 1:
                 lines = []
                 for i, node in enumerate(tfam):
                     lines.append('\xa0\xa0' * i + '➤ ' + node)
-                tt = ngettext('Table of Contents section:', 'Table of Contents sections:', len(lines))
-                tt += '\n' + '\n'.join(lines)
-                section_tt_map[sec] = tt
-            section_map[sec].append(h)
-        for secnum, (sec, items) in enumerate(section_map.items()):
-            section = QTreeWidgetItem([sec], 1)
+                tooltip = ngettext('Table of Contents section:', 'Table of Contents sections:', len(lines))
+                tooltip += '\n' + '\n'.join(lines)
+            return tooltip
+
+        for h in self.sorted_highlights(highlights):
+            tfam = tuple(h.get('toc_family_titles') or ())
+            if tfam:
+                tsec = tfam[0]
+                lsec = tfam[-1]
+                key = tfam
+            else:
+                tsec = h.get('top_level_section_title')
+                lsec = h.get('lowest_level_section_title')
+                key = (tsec or '', lsec or '')
+            short_title = lsec or tsec or _('Unknown')
+            title_counts[short_title] += 1
+            section = {
+                'title': short_title, 'tfam': tfam, 'tsec': tsec, 'lsec': lsec, 'items': [], 'tooltip': tooltip_for(tfam), 'key': key,
+            }
+            smap.setdefault(key, section)['items'].append(h)
+
+        for section in smap.values():
+            if title_counts[section['title']] > 1:
+                if section['tfam']:
+                    section['title'] = ' ➤ '.join(section['tfam'])
+                elif section['tsec'] and section['lsec']:
+                    section['title'] = ' ➤ '.join((section['tsec'], section['lsec']))
+
+        for secnum, (sec_key, sec) in enumerate(smap.items()):
+            section = QTreeWidgetItem([sec['title']], 1)
             section.setFlags(Qt.ItemFlag.ItemIsEnabled)
             section.setFont(0, self.section_font)
-            tt = section_tt_map.get(sec)
-            if tt:
-                section.setToolTip(0, tt)
+            section.setData(0, section_role, sec['key'])
+            if sec['tooltip']:
+                section.setToolTip(0, sec['tooltip'])
             self.addTopLevelItem(section)
-            section.setExpanded(not preserve_state or sec in expanded_chapters)
-            for itemnum, h in enumerate(items):
+            section.setExpanded(not preserve_state or sec['key'] in expanded_chapters)
+            for itemnum, h in enumerate(sec['items']):
                 txt = h.get('highlighted_text')
                 txt = txt.replace('\n', ' ')
                 if h.get('notes'):
@@ -251,7 +278,7 @@ class Highlights(QTreeWidget):
                     txt = txt[:100] + '…'
                 item = QTreeWidgetItem(section, [txt], 2)
                 item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemNeverHasChildren)
-                item.setData(0, Qt.ItemDataRole.UserRole, h)
+                item.setData(0, highlight_role, h)
                 try:
                     dec = decoration_for_style(self.palette(), h.get('style') or {}, icon_size, dpr, is_dark)
                 except Exception:
@@ -265,11 +292,13 @@ class Highlights(QTreeWidget):
                 self.num_of_items += 1
 
     def sorted_highlights(self, highlights):
-        defval = 999999999999999, cfi_sort_key('/99999999')
+        def_idx = 999999999999999
+        defval = def_idx, cfi_sort_key('/99999999')
 
         def cfi_key(h):
             cfi = h.get('start_cfi')
-            return (h.get('spine_index') or defval[0], cfi_sort_key(cfi)) if cfi else defval
+            si = h.get('spine_index', def_idx)
+            return (si, cfi_sort_key(cfi)) if cfi else defval
 
         return sorted(highlights, key=cfi_key)
 
@@ -301,7 +330,7 @@ class Highlights(QTreeWidget):
         if ch:
             q = ch['uuid']
             for i, item in enumerate(items):
-                h = item.data(0, Qt.ItemDataRole.UserRole)
+                h = item.data(0, highlight_role)
                 if h['uuid'] == q:
                     cr = i
         if query.backwards:
@@ -313,7 +342,7 @@ class Highlights(QTreeWidget):
                 cr = -1
             indices = chain(range(cr + 1, count), range(0, cr + 1))
         for i in indices:
-            h = items[i].data(0, Qt.ItemDataRole.UserRole)
+            h = items[i].data(0, highlight_role)
             if pat.search(h['highlighted_text']) is not None or pat.search(h.get('notes') or '') is not None:
                 self.set_current_row(*self.uuid_map[h['uuid']])
                 return True
@@ -336,7 +365,7 @@ class Highlights(QTreeWidget):
         return False
 
     def item_activated(self, item):
-        h = item.data(0, Qt.ItemDataRole.UserRole)
+        h = item.data(0, highlight_role)
         if h is not None:
             self.jump_to_highlight.emit(h)
 
@@ -344,17 +373,17 @@ class Highlights(QTreeWidget):
     def current_highlight(self):
         i = self.currentItem()
         if i is not None:
-            return i.data(0, Qt.ItemDataRole.UserRole)
+            return i.data(0, highlight_role)
 
     @property
     def all_highlights(self):
         for item in self.iteritems():
-            yield item.data(0, Qt.ItemDataRole.UserRole)
+            yield item.data(0, highlight_role)
 
     @property
     def selected_highlights(self):
         for item in self.selectedItems():
-            yield item.data(0, Qt.ItemDataRole.UserRole)
+            yield item.data(0, highlight_role)
 
     def keyPressEvent(self, ev):
         if ev.matches(QKeySequence.StandardKey.Delete):
@@ -397,7 +426,7 @@ class NotesDisplay(Details):
     def __init__(self, parent=None):
         Details.__init__(self, parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        self.anchorClicked.connect(self.edit_notes)
+        self.anchorClicked.connect(self.anchor_clicked)
         self.current_notes = ''
 
     def show_notes(self, text=''):
@@ -405,14 +434,21 @@ class NotesDisplay(Details):
         self.setVisible(bool(text))
         self.current_notes = text
         html = '\n'.join(render_notes(text))
-        self.setHtml('<div><a href="edit://moo" style="text-decoration: none">{}</a></div>{}'.format(_('Edit notes'), html))
+        self.setHtml('<div><a href="edit://moo">{}</a></div>{}'.format(_('Edit notes'), html))
+        self.document().setDefaultStyleSheet('a[href] { text-decoration: none }')
         h = self.document().size().height() + 2
-        self.setMaximumHeight(h)
+        self.setMaximumHeight(int(h))
+
+    def anchor_clicked(self, qurl):
+        if qurl.scheme() == 'edit':
+            self.edit_notes()
+        else:
+            safe_open_url(qurl)
 
     def edit_notes(self):
         current_text = self.current_notes
         d = NotesEditDialog(current_text, self)
-        if d.exec_() == QDialog.DialogCode.Accepted and d.notes != current_text:
+        if d.exec() == QDialog.DialogCode.Accepted and d.notes != current_text:
             self.notes_edited.emit(d.notes)
 
 
@@ -422,6 +458,7 @@ class HighlightsPanel(QWidget):
     request_highlight_action = pyqtSignal(object, object)
     web_action = pyqtSignal(object, object)
     toggle_requested = pyqtSignal()
+    notes_edited_signal = pyqtSignal(object, object)
 
     def __init__(self, parent=None):
         QWidget.__init__(self, parent)
@@ -449,7 +486,7 @@ class HighlightsPanel(QWidget):
         self.h = h = QHBoxLayout()
 
         def button(icon, text, tt, target):
-            b = QPushButton(QIcon(I(icon)), text, self)
+            b = QPushButton(QIcon.ic(icon), text, self)
             b.setToolTip(tt)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.clicked.connect(target)
@@ -471,6 +508,7 @@ class HighlightsPanel(QWidget):
         if h is not None:
             h['notes'] = text
             self.web_action.emit('set-notes-in-highlight', h)
+            self.notes_edited_signal.emit(h['uuid'], text)
 
     def set_tooltips(self, rmap):
         a = rmap.get('create_annotation')
@@ -533,7 +571,7 @@ class HighlightsPanel(QWidget):
         hl = list(self.highlights.all_highlights)
         if not hl:
             return error_dialog(self, _('No highlights'), _('This book has no highlights to export'), show=True)
-        Export(hl, self).exec_()
+        Export(hl, self).exec()
 
     def selected_text_changed(self, text, annot_id):
         if annot_id:

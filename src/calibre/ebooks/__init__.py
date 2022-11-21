@@ -1,5 +1,3 @@
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
@@ -11,7 +9,6 @@ from various formats.
 import os, re, numbers, sys
 from calibre import prints
 from calibre.ebooks.chardet import xml_to_unicode
-from polyglot.builtins import unicode_type
 
 
 class ConversionError(Exception):
@@ -82,7 +79,7 @@ def extract_calibre_cover(raw, base, log):
     if matches is None:
         body = soup.find('body')
         if body is not None:
-            text = u''.join(map(unicode_type, body.findAll(text=True)))
+            text = ''.join(map(str, body.findAll(text=True)))
             if text.strip():
                 # Body has text, abort
                 return
@@ -92,7 +89,7 @@ def extract_calibre_cover(raw, base, log):
                 return return_raster_image(img)
 
 
-def render_html_svg_workaround(path_to_html, log, width=590, height=750):
+def render_html_svg_workaround(path_to_html, log, width=590, height=750, root=''):
     from calibre.ebooks.oeb.base import SVG_NS
     with open(path_to_html, 'rb') as f:
         raw = f.read()
@@ -111,11 +108,11 @@ def render_html_svg_workaround(path_to_html, log, width=590, height=750):
             pass
 
     if data is None:
-        data = render_html_data(path_to_html, width, height)
+        data = render_html_data(path_to_html, width, height, root=root)
     return data
 
 
-def render_html_data(path_to_html, width, height):
+def render_html_data(path_to_html, width, height, root=''):
     from calibre.ptempfile import TemporaryDirectory
     from calibre.utils.ipc.simple_worker import fork_job, WorkerError
     result = {}
@@ -130,7 +127,7 @@ def render_html_data(path_to_html, width, height):
 
     with TemporaryDirectory('-render-html') as tdir:
         try:
-            result = fork_job('calibre.ebooks.render_html', 'main', args=(path_to_html, tdir, 'jpeg'))
+            result = fork_job('calibre.ebooks.render_html', 'main', args=(path_to_html, tdir, 'jpeg', root))
         except WorkerError as e:
             report_error(e.orig_tb)
         else:
@@ -152,7 +149,7 @@ def check_ebook_format(stream, current_guess):
 
 
 def normalize(x):
-    if isinstance(x, unicode_type):
+    if isinstance(x, str):
         import unicodedata
         x = unicodedata.normalize('NFC', x)
     return x

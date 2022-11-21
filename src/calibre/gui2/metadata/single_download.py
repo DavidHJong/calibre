@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -18,9 +17,9 @@ from qt.core import (
     QStyledItemDelegate, QTextDocument, QRectF, QIcon, Qt, QApplication,
     QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QStyle, QStackedWidget,
     QWidget, QTableView, QGridLayout, QPalette, QTimer, pyqtSignal,
-    QAbstractTableModel, QSize, QListView, QPixmap, QModelIndex,
+    QAbstractTableModel, QSize, QListView, QPixmap, QModelIndex, QSplitter,
     QAbstractListModel, QRect, QTextBrowser, QStringListModel, QMenu, QItemSelectionModel,
-    QCursor, QHBoxLayout, QPushButton, QSizePolicy, QSplitter, QAbstractItemView)
+    QCursor, QHBoxLayout, QPushButton, QSizePolicy, QAbstractItemView)
 
 from calibre.customize.ui import metadata_plugins
 from calibre.ebooks.metadata import authors_to_string, rating_to_stars
@@ -37,7 +36,7 @@ from calibre.library.comments import comments_to_html
 from calibre import force_unicode
 from calibre.utils.ipc.simple_worker import fork_job, WorkerError
 from calibre.ptempfile import TemporaryDirectory
-from polyglot.builtins import iteritems, itervalues, unicode_type, range, getcwd
+from polyglot.builtins import iteritems, itervalues
 from polyglot.queue import Queue, Empty
 # }}}
 
@@ -126,7 +125,7 @@ class ResultsModel(QAbstractTableModel):  # {{{
     def __init__(self, results, parent=None):
         QAbstractTableModel.__init__(self, parent)
         self.results = results
-        self.yes_icon = (QIcon(I('ok.png')))
+        self.yes_icon = (QIcon.ic('ok.png'))
 
     def rowCount(self, parent=None):
         return len(self.results)
@@ -144,15 +143,15 @@ class ResultsModel(QAbstractTableModel):  # {{{
 
     def data_as_text(self, book, col):
         if col == 0:
-            return unicode_type(book.gui_rank+1)
+            return str(book.gui_rank+1)
         if col == 1:
             t = book.title if book.title else _('Unknown')
             a = authors_to_string(book.authors) if book.authors else ''
-            return '<b>%s</b><br><i>%s</i>' % (t, a)
+            return f'<b>{t}</b><br><i>{a}</i>'
         if col == 2:
             d = format_date(book.pubdate, 'yyyy') if book.pubdate else _('Unknown')
             p = book.publisher if book.publisher else ''
-            return '<b>%s</b><br><i>%s</i>' % (d, p)
+            return f'<b>{d}</b><br><i>{p}</i>'
 
     def data(self, index, role):
         row, col = index.row(), index.column()
@@ -241,7 +240,7 @@ class ResultsView(QTableView):  # {{{
         self.resizeColumnsToContents()
 
     def resizeEvent(self, ev):
-        ret = super(ResultsView, self).resizeEvent(ev)
+        ret = super().resizeEvent(ev)
         self.resize_delegate()
         return ret
 
@@ -341,7 +340,7 @@ class Comments(HTMLDisplay):  # {{{
             if col.isValid():
                 col = col.toRgb()
                 if col.isValid():
-                    ans = unicode_type(col.name())
+                    ans = str(col.name())
             return ans
 
         c = color_to_string(QApplication.palette().color(QPalette.ColorGroup.Normal,
@@ -408,7 +407,7 @@ class IdentifyWorker(Thread):  # {{{
                         'single_identify', (self.title, self.authors,
                             self.identifiers), no_output=True, abort=self.abort)
                 self.results, covers, caches, log_dump = res['result']
-                self.results = [OPF(BytesIO(r), basedir=getcwd(),
+                self.results = [OPF(BytesIO(r), basedir=os.getcwd(),
                     populate_spine=False).to_book_metadata() for r in self.results]
                 for r, cov in zip(self.results, covers):
                     r.has_cached_cover_url = cov
@@ -463,6 +462,7 @@ class IdentifyWidget(QWidget):  # {{{
 
         self.query = QLabel('download starting...')
         self.query.setWordWrap(True)
+        self.query.setTextFormat(Qt.TextFormat.PlainText)
         l.addWidget(self.query)
 
         self.comments_view.show_wait()
@@ -492,7 +492,7 @@ class IdentifyWidget(QWidget):  # {{{
             if 'isbn' in identifiers:
                 simple_desc += 'ISBN: %s' % identifiers['isbn']
         self.query.setText(simple_desc)
-        self.log(unicode_type(self.query.text()))
+        self.log(str(self.query.text()))
 
         self.worker = IdentifyWorker(self.log, self.abort, title,
                 authors, identifiers, self.caches)
@@ -622,10 +622,11 @@ class CoversModel(QAbstractListModel):  # {{{
         QAbstractListModel.__init__(self, parent)
 
         if current_cover is None:
-            current_cover = QPixmap(I('default_cover.png'))
+            ic = QIcon.ic('default_cover.png')
+            current_cover = ic.pixmap(ic.availableSizes()[0])
         current_cover.setDevicePixelRatio(QApplication.instance().devicePixelRatio())
 
-        self.blank = QIcon(I('blank.png')).pixmap(*CoverDelegate.ICON_SIZE)
+        self.blank = QIcon.ic('blank.png').pixmap(*CoverDelegate.ICON_SIZE)
         self.cc = current_cover
         self.reset_covers(do_reset=False)
 
@@ -820,9 +821,9 @@ class CoversView(QListView):  # {{{
         idx = self.currentIndex()
         if idx and idx.isValid() and not idx.data(Qt.ItemDataRole.UserRole):
             m = QMenu(self)
-            m.addAction(QIcon(I('view.png')), _('View this cover at full size'), self.show_cover)
-            m.addAction(QIcon(I('edit-copy.png')), _('Copy this cover to clipboard'), self.copy_cover)
-            m.exec_(QCursor.pos())
+            m.addAction(QIcon.ic('view.png'), _('View this cover at full size'), self.show_cover)
+            m.addAction(QIcon.ic('edit-copy.png'), _('Copy this cover to clipboard'), self.copy_cover)
+            m.exec(QCursor.pos())
 
     def show_cover(self):
         idx = self.currentIndex()
@@ -831,7 +832,7 @@ class CoversView(QListView):  # {{{
             pmap = self.model().cc
         if pmap is not None:
             from calibre.gui2.image_popup import ImageView
-            d = ImageView(self, pmap, unicode_type(idx.data(Qt.ItemDataRole.DisplayRole) or ''), geom_name='metadata_download_cover_popup_geom')
+            d = ImageView(self, pmap, str(idx.data(Qt.ItemDataRole.DisplayRole) or ''), geom_name='metadata_download_cover_popup_geom')
             d(use_exec=True)
 
     def copy_cover(self):
@@ -980,12 +981,12 @@ class LogViewer(QDialog):  # {{{
         self.copy_button = self.bb.addButton(_('Copy to clipboard'),
                 QDialogButtonBox.ButtonRole.ActionRole)
         self.copy_button.clicked.connect(self.copy_to_clipboard)
-        self.copy_button.setIcon(QIcon(I('edit-copy.png')))
+        self.copy_button.setIcon(QIcon.ic('edit-copy.png'))
         self.bb.rejected.connect(self.reject)
         self.bb.accepted.connect(self.accept)
 
         self.setWindowTitle(_('Download log'))
-        self.setWindowIcon(QIcon(I('debug.png')))
+        self.setWindowIcon(QIcon.ic('debug.png'))
         self.resize(QSize(800, 400))
 
         self.keep_updating = True
@@ -1022,7 +1023,7 @@ class FullFetch(QDialog):  # {{{
         self.book = self.cover_pixmap = None
 
         self.setWindowTitle(_('Downloading metadata...'))
-        self.setWindowIcon(QIcon(I('download-metadata.png')))
+        self.setWindowIcon(QIcon.ic('download-metadata.png'))
 
         self.stack = QStackedWidget()
         self.l = l = QVBoxLayout()
@@ -1037,12 +1038,12 @@ class FullFetch(QDialog):  # {{{
         self.ok_button = self.bb.button(QDialogButtonBox.StandardButton.Ok)
         self.ok_button.setEnabled(False)
         self.ok_button.clicked.connect(self.ok_clicked)
-        self.prev_button = pb = QPushButton(QIcon(I('back.png')), _('&Back'), self)
+        self.prev_button = pb = QPushButton(QIcon.ic('back.png'), _('&Back'), self)
         pb.clicked.connect(self.back_clicked)
         pb.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.log_button = self.bb.addButton(_('&View log'), QDialogButtonBox.ButtonRole.ActionRole)
         self.log_button.clicked.connect(self.view_log)
-        self.log_button.setIcon(QIcon(I('debug.png')))
+        self.log_button.setIcon(QIcon.ic('debug.png'))
         self.prev_button.setVisible(False)
         h.addWidget(self.prev_button), h.addWidget(self.bb)
 
@@ -1056,11 +1057,8 @@ class FullFetch(QDialog):  # {{{
         self.covers_widget.chosen.connect(self.ok_clicked)
         self.stack.addWidget(self.covers_widget)
 
-        self.resize(850, 600)
-        geom = gprefs.get('metadata_single_gui_geom', None)
-        if geom is not None and geom:
-            QApplication.instance().safe_restore_geometry(self, geom)
-
+        if not self.restore_geometry(gprefs, 'metadata_single_gui_geom'):
+            self.resize(850, 600)
         self.finished.connect(self.cleanup)
 
     def view_log(self):
@@ -1083,7 +1081,7 @@ class FullFetch(QDialog):  # {{{
 
     def accept(self):
         # Prevent the usual dialog accept mechanisms from working
-        gprefs['metadata_single_gui_geom'] = bytearray(self.saveGeometry())
+        self.save_geometry(gprefs, 'metadata_single_gui_geom')
         self.identify_widget.save_state()
         if DEBUG_DIALOG:
             if self.stack.currentIndex() == 2:
@@ -1093,7 +1091,7 @@ class FullFetch(QDialog):  # {{{
                 return QDialog.accept(self)
 
     def reject(self):
-        gprefs['metadata_single_gui_geom'] = bytearray(self.saveGeometry())
+        self.save_geometry(gprefs, 'metadata_single_gui_geom')
         self.identify_widget.cancel()
         self.covers_widget.cancel()
         return QDialog.reject(self)
@@ -1105,7 +1103,7 @@ class FullFetch(QDialog):  # {{{
         self.ok_button.setEnabled(True)
 
     def next_clicked(self, *args):
-        gprefs['metadata_single_gui_geom'] = bytearray(self.saveGeometry())
+        self.save_geometry(gprefs, 'metadata_single_gui_geom')
         self.identify_widget.get_result()
 
     def ok_clicked(self, *args):
@@ -1126,7 +1124,7 @@ class FullFetch(QDialog):  # {{{
         self.title, self.authors = title, authors
         self.identify_widget.start(title=title, authors=authors,
                 identifiers=identifiers)
-        return self.exec_()
+        return self.exec()
 # }}}
 
 
@@ -1139,7 +1137,7 @@ class CoverFetch(QDialog):  # {{{
         self.cover_pixmap = None
 
         self.setWindowTitle(_('Downloading cover...'))
-        self.setWindowIcon(QIcon(I('default_cover.png')))
+        self.setWindowIcon(QIcon.ic('default_cover.png'))
 
         self.l = l = QVBoxLayout()
         self.setLayout(l)
@@ -1156,24 +1154,21 @@ class CoverFetch(QDialog):  # {{{
         l.addWidget(self.bb)
         self.log_button = self.bb.addButton(_('&View log'), QDialogButtonBox.ButtonRole.ActionRole)
         self.log_button.clicked.connect(self.view_log)
-        self.log_button.setIcon(QIcon(I('debug.png')))
+        self.log_button.setIcon(QIcon.ic('debug.png'))
         self.bb.rejected.connect(self.reject)
         self.bb.accepted.connect(self.accept)
-
-        geom = gprefs.get('single-cover-fetch-dialog-geometry', None)
-        if geom is not None:
-            QApplication.instance().safe_restore_geometry(self, geom)
+        self.restore_geometry(gprefs, 'single-cover-fetch-dialog-geometry')
 
     def cleanup(self):
         self.covers_widget.cleanup()
 
     def reject(self):
-        gprefs.set('single-cover-fetch-dialog-geometry', bytearray(self.saveGeometry()))
+        self.save_geometry(gprefs, 'single-cover-fetch-dialog-geometry')
         self.covers_widget.cancel()
         return QDialog.reject(self)
 
     def accept(self, *args):
-        gprefs.set('single-cover-fetch-dialog-geometry', bytearray(self.saveGeometry()))
+        self.save_geometry(gprefs, 'single-cover-fetch-dialog-geometry')
         self.cover_pixmap = self.covers_widget.cover_pixmap()
         QDialog.accept(self)
 
@@ -1182,7 +1177,7 @@ class CoverFetch(QDialog):  # {{{
         book.identifiers = identifiers
         self.covers_widget.start(book, self.current_cover,
                 title, authors, {})
-        return self.exec_()
+        return self.exec()
 
     def view_log(self):
         self._lv = LogViewer(self.log, self)

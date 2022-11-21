@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -17,7 +14,7 @@ from calibre.ebooks.metadata.opf2 import OPFCreator
 
 from calibre.ebooks.conversion.preprocess import DocAnalysis
 from calibre.utils.cleantext import clean_ascii_chars
-from polyglot.builtins import iteritems, unicode_type, map, range
+from polyglot.builtins import iteritems
 
 HTML_TEMPLATE = '<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"/><title>%s </title></head><body>\n%s\n</body></html>'
 
@@ -62,7 +59,7 @@ def split_txt(txt, epub_split_size_kb=0):
     '''
     # Takes care if there is no point to split
     if epub_split_size_kb > 0:
-        if isinstance(txt, unicode_type):
+        if isinstance(txt, str):
             txt = txt.encode('utf-8')
         if len(txt) > epub_split_size_kb * 1024:
             chunk_size = max(16, epub_split_size_kb - 32) * 1024
@@ -94,13 +91,13 @@ def convert_basic(txt, title='', epub_split_size_kb=0):
     for line in txt.split('\n'):
         if line.strip():
             blank_count = 0
-            lines.append(u'<p>%s</p>' % prepare_string_for_xml(line.replace('\n', ' ')))
+            lines.append('<p>%s</p>' % prepare_string_for_xml(line.replace('\n', ' ')))
         else:
             blank_count += 1
             if blank_count == 2:
-                lines.append(u'<p>&nbsp;</p>')
+                lines.append('<p>&nbsp;</p>')
 
-    return HTML_TEMPLATE % (title, u'\n'.join(lines))
+    return HTML_TEMPLATE % (title, '\n'.join(lines))
 
 
 DEFAULT_MD_EXTENSIONS = ('footnotes', 'tables', 'toc')
@@ -123,7 +120,7 @@ def create_markdown_object(extensions):
             for name, x in vars(module).items():
                 if type(x) is type and issubclass(x, Extension) and x is not Extension:
                     return x(**configs)
-            raise ImportError('No extension class in {}'.format(ext_name))
+            raise ImportError(f'No extension class in {ext_name}')
 
     from calibre.ebooks.conversion.plugins.txt_input import MD_EXTENSIONS
     extensions = [x.lower() for x in extensions]
@@ -191,7 +188,7 @@ def separate_paragraphs_single_line(txt):
 
 
 def separate_paragraphs_print_formatted(txt):
-    txt = re.sub(u'(?miu)^(?P<indent>\t+|[ ]{2,})(?=.)', lambda mo: '\n%s' % mo.group('indent'), txt)
+    txt = re.sub('(?miu)^(?P<indent>\t+|[ ]{2,})(?=.)', lambda mo: '\n%s' % mo.group('indent'), txt)
     return txt
 
 
@@ -223,7 +220,7 @@ def remove_indents(txt):
     '''
     Remove whitespace at the beginning of each line.
     '''
-    return '\n'.join([l.lstrip() for l in txt.splitlines()])
+    return re.sub(r'^[\r\t\f\v ]+', r'', txt, flags=re.MULTILINE)
 
 
 def opf_writer(path, opf_name, manifest, spine, mi):
@@ -234,14 +231,28 @@ def opf_writer(path, opf_name, manifest, spine, mi):
         opf.render(opffile)
 
 
+def split_utf8(s, n):
+    """Split UTF-8 s into chunks of maximum length n."""
+    if n < 3:
+        raise ValueError(f'Cannot split into chunks of less than {n} < 4 bytes')
+    s = memoryview(s)
+    while len(s) > n:
+        k = n
+        while (s[k] & 0xc0) == 0x80:
+            k -= 1
+        yield bytes(s[:k])
+        s = s[k:]
+    yield bytes(s)
+
+
 def split_string_separator(txt, size):
     '''
     Splits the text by putting \n\n at the point size.
     '''
-    if len(txt) > size and size > 2:
+    if len(txt) > size and size > 3:
         size -= 2
         ans = []
-        for part in (txt[i * size: (i + 1) * size] for i in range(0, len(txt), size)):
+        for part in split_utf8(txt, size):
             idx = part.rfind(b'.')
             if idx == -1:
                 part += b'\n\n'
@@ -341,3 +352,32 @@ def detect_formatting_type(txt):
             return 'textile'
 
     return 'heuristic'
+
+
+def get_images_from_polyglot_text(txt: str, base_dir: str = '', file_ext: str = 'txt') -> set:
+    from calibre.ebooks.oeb.base import OEB_IMAGES
+    from calibre import guess_type
+    if not base_dir:
+        base_dir = os.getcwd()
+    images = set()
+
+    def check_path(path: str) -> None:
+        if path and not os.path.isabs(path) and guess_type(path)[0] in OEB_IMAGES and os.path.exists(os.path.join(base_dir, path)):
+            images.add(path)
+
+    if file_ext in ('txt', 'text', 'textile'):
+        # Textile
+        for m in re.finditer(r'(?mu)(?:[\[{])?\!(?:\. )?(?P<path>[^\s(!]+)\s?(?:\(([^\)]+)\))?\!(?::(\S+))?(?:[\]}]|(?=\s|$))', txt):
+            path = m.group('path')
+            check_path(path)
+
+    if file_ext in ('txt', 'text', 'md', 'markdown'):
+        # Markdown
+        from markdown import Markdown
+        html = HTML_TEMPLATE % ('', Markdown().convert(txt))
+        from html5_parser import parse
+        root = parse(html)
+        for img in root.iterdescendants('img'):
+            path = img.get('src')
+            check_path(path)
+    return images

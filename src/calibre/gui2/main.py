@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -27,9 +26,9 @@ from calibre.gui2.splash_screen import SplashScreen
 from calibre.utils.config import dynamic, prefs
 from calibre.utils.lock import SingleInstance
 from calibre.utils.monotonic import monotonic
-from polyglot.builtins import as_bytes, environ_item, range, unicode_type
+from polyglot.builtins import as_bytes, environ_item
 
-after_quit_actions = {'debug_on_restart': False, 'restart_after_quit': False}
+after_quit_actions = {'debug_on_restart': False, 'restart_after_quit': False, 'no_plugins_on_restart': False}
 if iswindows:
     from calibre_extensions import winutil
 
@@ -110,6 +109,8 @@ def find_portable_library():
 def init_qt(args):
     parser = option_parser()
     opts, args = parser.parse_args(args)
+    if os.environ.pop('CALIBRE_IGNORE_PLUGINS_ON_RESTART', '') == '1':
+        opts.ignore_plugins = True
     find_portable_library()
     if opts.with_library is not None:
         libpath = os.path.expanduser(opts.with_library)
@@ -139,7 +140,7 @@ def get_default_library_path():
     fname = _('Calibre Library')
     if iswindows:
         fname = 'Calibre Library'
-    if isinstance(fname, unicode_type):
+    if isinstance(fname, str):
         try:
             fname.encode(filesystem_encoding)
         except Exception:
@@ -168,7 +169,7 @@ def get_library_path(gui_runner):
         base = os.path.expanduser('~')
         if not base or not os.path.exists(base):
             from qt.core import QDir
-            base = unicode_type(QDir.homePath()).replace('/', os.sep)
+            base = str(QDir.homePath()).replace('/', os.sep)
         candidate = gui_runner.choose_dir(base)
         if not candidate:
             candidate = os.path.join(base, 'Calibre Library')
@@ -218,7 +219,7 @@ def windows_repair(library_path=None):
         app.quit()
 
 
-class EventAccumulator(object):
+class EventAccumulator:
 
     def __init__(self):
         self.events = []
@@ -244,7 +245,7 @@ class GuiRunner(QObject):
 
     def timed_print(self, *a, **kw):
         if DEBUG:
-            prints('[{:.2f}]'.format(monotonic() - self.startup_time), *a, **kw)
+            prints(f'[{monotonic() - self.startup_time:.2f}]', *a, **kw)
 
     def start_gui(self, db):
         from calibre.gui2.ui import Main
@@ -277,6 +278,7 @@ class GuiRunner(QObject):
                 default_dir=initial_dir)
 
     def show_error(self, title, msg, det_msg=''):
+        print(det_msg, file=sys.stderr)
         self.hide_splash_screen()
         with self.app:
             error_dialog(self.splash_screen, title, msg, det_msg=det_msg, show=True)
@@ -406,7 +408,7 @@ def run_gui_(opts, args, app, gui_debug=None):
     app.load_builtin_fonts(scan_for_fonts=True)
     if not dynamic.get('welcome_wizard_was_run', False):
         from calibre.gui2.wizard import wizard
-        wizard().exec_()
+        wizard().exec()
         dynamic.set('welcome_wizard_was_run', True)
     from calibre.gui2.ui import Main
     if ismacos:
@@ -414,13 +416,14 @@ def run_gui_(opts, args, app, gui_debug=None):
     else:
         actions = tuple(Main.get_menubar_actions())
     runner = GuiRunner(opts, args, actions, app, gui_debug=gui_debug)
-    ret = app.exec_()
+    ret = app.exec()
     if getattr(runner.main, 'run_wizard_b4_shutdown', False):
         from calibre.gui2.wizard import wizard
-        wizard().exec_()
+        wizard().exec()
     if getattr(runner.main, 'restart_after_quit', False):
         after_quit_actions['restart_after_quit'] = True
         after_quit_actions['debug_on_restart'] = getattr(runner.main, 'debug_on_restart', False) or gui_debug is not None
+        after_quit_actions['no_plugins_on_restart'] = getattr(runner.main, 'no_plugins_on_restart', False)
     else:
         if iswindows:
             try:
@@ -431,6 +434,8 @@ def run_gui_(opts, args, app, gui_debug=None):
         debugfile = runner.main.gui_debug
         from calibre.gui2 import open_local_file
         if iswindows:
+            # detach the stdout/stderr/stdin handles
+            winutil.prepare_for_restart()
             with open(debugfile, 'r+b') as f:
                 raw = f.read()
                 raw = re.sub(b'(?<!\r)\n', b'\r\n', raw)
@@ -444,7 +449,11 @@ def run_gui_(opts, args, app, gui_debug=None):
 singleinstance_name = 'GUI'
 
 
-def send_message(msg):
+class FailedToCommunicate(Exception):
+    pass
+
+
+def send_message(msg, retry_communicate=False):
     try:
         send_message_in_process(msg)
     except Exception:
@@ -452,6 +461,10 @@ def send_message(msg):
         try:
             send_message_in_process(msg)
         except Exception as err:
+            # can happen because the Qt local server pipe is shutdown before
+            # the single instance mutex is released
+            if retry_communicate:
+                raise FailedToCommunicate('retrying')
             print(_('Failed to contact running instance of calibre'), file=sys.stderr, flush=True)
             print(err, file=sys.stderr, flush=True)
             if Application.instance():
@@ -473,22 +486,29 @@ def shutdown_other():
         raise SystemExit(_('Failed to shutdown running calibre instance'))
 
 
-def communicate(opts, args):
+def communicate(opts, args, retry_communicate=False):
     if opts.shutdown_running_calibre:
         shutdown_other()
     else:
         if len(args) > 1:
             args[1:] = [os.path.abspath(x) if os.path.exists(x) else x for x in args[1:]]
+        if opts.with_library and os.path.isdir(os.path.expanduser(opts.with_library)):
+            library_id = os.path.basename(opts.with_library).replace(' ', '_').encode('utf-8').hex()
+            args.insert(1, 'calibre://switch-library/_hex_-' + library_id)
         import json
-        if not send_message(b'launched:'+as_bytes(json.dumps(args))):
+        if not send_message(b'launched:'+as_bytes(json.dumps(args)), retry_communicate=retry_communicate):
             raise SystemExit(_('Failed to contact running instance of calibre'))
     raise SystemExit(0)
 
 
 def restart_after_quit():
-    if iswindows:
+    e = sys.executable if getattr(sys, 'frozen', False) else sys.argv[0]
+    is_calibre_debug_exe = os.path.splitext(e)[0].endswith('-debug')
+    if iswindows and not is_calibre_debug_exe:
         # detach the stdout/stderr/stdin handles
         winutil.prepare_for_restart()
+    if after_quit_actions['no_plugins_on_restart']:
+        os.environ['CALIBRE_IGNORE_PLUGINS_ON_RESTART'] = '1'
     if after_quit_actions['debug_on_restart']:
         run_in_debug_mode()
         return
@@ -506,9 +526,8 @@ def restart_after_quit():
             else:
                 cmd.append('calibre')
         else:
-            e = sys.executable if getattr(sys, 'frozen', False) else sys.argv[0]
             cmd = [e]
-            if os.path.splitext(e)[0].endswith('-debug'):
+            if is_calibre_debug_exe:
                 cmd.append('-g')
         prints('Restarting with:', ' '.join(cmd))
         subprocess.Popen(cmd)
@@ -527,18 +546,24 @@ def main(args=sys.argv):
         app, opts, args = init_qt(args)
     except AbortInit:
         return 1
-    with SingleInstance(singleinstance_name) as si:
-        if si and opts.shutdown_running_calibre:
-            return 0
-        run_main(app, opts, args, gui_debug, si)
+    try:
+        with SingleInstance(singleinstance_name) as si:
+            if si and opts.shutdown_running_calibre:
+                return 0
+            run_main(app, opts, args, gui_debug, si, retry_communicate=True)
+    except FailedToCommunicate:
+        with SingleInstance(singleinstance_name) as si:
+            if si and opts.shutdown_running_calibre:
+                return 0
+            run_main(app, opts, args, gui_debug, si, retry_communicate=False)
     if after_quit_actions['restart_after_quit']:
         restart_after_quit()
 
 
-def run_main(app, opts, args, gui_debug, si):
+def run_main(app, opts, args, gui_debug, si, retry_communicate=False):
     if si:
         return run_gui(opts, args, app, gui_debug=gui_debug)
-    communicate(opts, args)
+    communicate(opts, args, retry_communicate)
     return 0
 
 
@@ -556,6 +581,6 @@ if __name__ == '__main__':
                 log = f.read().decode('utf-8', 'ignore')
             d = QErrorMessage()
             d.showMessage(('<b>Error:</b>%s<br><b>Traceback:</b><br>'
-                '%s<b>Log:</b><br>%s')%(unicode_type(err),
-                    unicode_type(tb).replace('\n', '<br>'),
+                '%s<b>Log:</b><br>%s')%(str(err),
+                    str(tb).replace('\n', '<br>'),
                     log.replace('\n', '<br>')))

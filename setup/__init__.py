@@ -1,15 +1,22 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import sys, re, os, platform, subprocess, time, errno, tempfile, shutil
+import errno
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import hashlib
 from contextlib import contextmanager
+from functools import lru_cache
 
-is64bit = platform.architecture()[0] == '64bit'
 iswindows = re.search('win(32|64)', sys.platform)
 ismacos = 'darwin' in sys.platform
 isfreebsd = 'freebsd' in sys.platform
@@ -53,11 +60,30 @@ def dump_json(obj, path, indent=4):
         f.write(data)
 
 
+@lru_cache
+def curl_supports_etags():
+    return '--etag-compare' in subprocess.check_output(['curl', '--help', 'all']).decode('utf-8')
+
+
 def download_securely(url):
     # We use curl here as on some OSes (OS X) when bootstrapping calibre,
     # python will be unable to validate certificates until after cacerts is
     # installed
-    return subprocess.check_output(['curl', '-fsSL', url])
+    if os.environ.get('CI') and iswindows:
+        # curl is failing for wikipedia urls on CI (used for browser_data)
+        from urllib.request import urlopen
+        return urlopen(url).read()
+    if not curl_supports_etags():
+        return subprocess.check_output(['curl', '-fsSL', url])
+    url_hash = hashlib.sha1(url.encode('utf-8')).hexdigest()
+    cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.cache', 'download', url_hash)
+    os.makedirs(cache_dir, exist_ok=True)
+    subprocess.check_call(
+        ['curl', '-fsSL', '--etag-compare', 'etag.txt', '--etag-save', 'etag.txt', '-o', 'data.bin', url],
+        cwd=cache_dir
+    )
+    with open(os.path.join(cache_dir, 'data.bin'), 'rb') as f:
+        return f.read()
 
 
 def build_cache_dir():
@@ -67,7 +93,7 @@ def build_cache_dir():
         _cache_dir_built = True
         try:
             os.mkdir(ans)
-        except EnvironmentError as err:
+        except OSError as err:
             if err.errno != errno.EEXIST:
                 raise
     return ans
@@ -75,7 +101,7 @@ def build_cache_dir():
 
 def require_git_master(branch='master'):
     if subprocess.check_output(['git', 'symbolic-ref', '--short', 'HEAD']).decode('utf-8').strip() != branch:
-        raise SystemExit('You must be in the {} git branch'.format(branch))
+        raise SystemExit(f'You must be in the {branch} git branch')
 
 
 def require_clean_git():
@@ -98,8 +124,9 @@ def initialize_constants():
     __version__ = '%s.%s.%s'%(nv.group(1), nv.group(2), nv.group(3))
     __appname__ = re.search(r'__appname__\s+=\s+(u{0,1})[\'"]([^\'"]+)[\'"]',
             src).group(2)
-    epsrc = re.compile(r'entry_points = (\{.*?\})', re.DOTALL).\
-            search(open(os.path.join(SRC, 'calibre/linux.py'), 'rb').read().decode('utf-8')).group(1)
+    with open(os.path.join(SRC, 'calibre/linux.py'), 'rb') as sf:
+        epsrc = re.compile(r'entry_points = (\{.*?\})', re.DOTALL).\
+                search(sf.read().decode('utf-8')).group(1)
     entry_points = eval(epsrc, {'__appname__': __appname__})
 
     def e2b(ep):
@@ -139,7 +166,7 @@ def edit_file(path):
     ]).wait() == 0
 
 
-class Command(object):
+class Command:
 
     SRC = SRC
     RESOURCES = os.path.join(os.path.dirname(SRC), 'resources')
@@ -184,6 +211,8 @@ class Command(object):
 
     def running(self, cmd):
         from setup.commands import command_names
+        if os.environ.get('CI'):
+            self.info('::group::' + command_names[cmd])
         self.info('\n*')
         self.info('* Running', command_names[cmd])
         self.info('*\n')
@@ -197,7 +226,9 @@ class Command(object):
         st = time.time()
         self.running(cmd)
         cmd.run(opts)
-        self.info('* %s took %.1f seconds' % (command_names[cmd], time.time() - st))
+        self.info(f'* {command_names[cmd]} took {time.time() - st:.1f} seconds')
+        if os.environ.get('CI'):
+            self.info('::endgroup::')
 
     def run_all(self, opts):
         self.run_cmd(self, opts)
@@ -251,17 +282,12 @@ class Command(object):
             shutil.rmtree(ans)
 
 
-def installer_name(ext, is64bit=False):
-    if is64bit and ext == 'msi':
-        return 'dist/%s-64bit-%s.msi'%(__appname__, __version__)
-    if ext in ('exe', 'msi'):
-        return 'dist/%s-%s.%s'%(__appname__, __version__, ext)
-    if ext == 'dmg':
-        if is64bit:
-            return 'dist/%s-%s-x86_64.%s'%(__appname__, __version__, ext)
-        return 'dist/%s-%s.%s'%(__appname__, __version__, ext)
-
-    ans = 'dist/%s-%s-i686.%s'%(__appname__, __version__, ext)
-    if is64bit:
-        ans = ans.replace('i686', 'x86_64')
-    return ans
+def installer_names(include_source=True):
+    base = f'dist/{__appname__}'
+    yield f'{base}-64bit-{__version__}.msi'
+    yield f'{base}-{__version__}.dmg'
+    yield f'{base}-portable-installer-{__version__}.exe'
+    for arch in ('x86_64', 'arm64'):
+        yield f'{base}-{__version__}-{arch}.txz'
+    if include_source:
+        yield f'{base}-{__version__}.tar.xz'

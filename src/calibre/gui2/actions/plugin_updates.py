@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -19,7 +18,7 @@ class PluginUpdaterAction(InterfaceAction):
     action_type = 'current'
 
     def genesis(self):
-        self.qaction.setIcon(QIcon(I('plugins/plugin_updater.png')))
+        self.qaction.setIcon(QIcon.ic('plugins/plugin_updater.png'))
         self.qaction.triggered.connect(self.check_for_plugin_updates)
 
     def check_for_plugin_updates(self):
@@ -30,6 +29,6 @@ class PluginUpdaterAction(InterfaceAction):
             initial_filter = FILTER_ALL
 
         d = PluginUpdaterDialog(self.gui, initial_filter=initial_filter)
-        d.exec_()
+        d.exec()
         if d.do_restart:
             self.gui.quit(restart=True)

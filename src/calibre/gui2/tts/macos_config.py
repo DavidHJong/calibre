@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2020, Kovid Goyal <kovid at kovidgoyal.net>
 
 from contextlib import suppress
@@ -8,7 +7,7 @@ from qt.core import (
     QItemSelectionModel, QSlider, QSortFilterProxyModel, Qt, QTableView, QWidget
 )
 
-from calibre.gui2.preferences.look_feel import BusyCursor
+from calibre.gui2.widgets import BusyCursor
 
 
 class VoicesModel(QAbstractTableModel):
@@ -171,7 +170,7 @@ def develop():
     c = Client()
     w = Widget(c, {})
     w.show()
-    app.exec_()
+    app.exec()
     print(w.backend_settings)
 
 

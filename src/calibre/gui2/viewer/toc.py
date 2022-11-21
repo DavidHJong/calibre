@@ -1,19 +1,18 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2019, Kovid Goyal <kovid at kovidgoyal.net>
 
 
 import re
 from functools import partial
-
 from qt.core import (
-    QApplication, QFont, QHBoxLayout, QIcon, QMenu, QModelIndex, QStandardItem,
-    QStandardItemModel, QStyledItemDelegate, Qt, QToolButton, QToolTip, QTreeView,
-    QWidget, pyqtSignal, QEvent
+    QAbstractItemView, QApplication, QEvent, QFont, QHBoxLayout, QIcon, QMenu,
+    QModelIndex, QStandardItem, QStandardItemModel, QStyledItemDelegate,
+    Qt, QToolButton, QToolTip, QTreeView, QWidget, pyqtSignal
 )
 
 from calibre.gui2 import error_dialog
 from calibre.gui2.search_box import SearchBox2
+from calibre.gui2.gestures import GestureManager
 from calibre.utils.icu import primary_contains
 
 
@@ -47,8 +46,18 @@ class TOCView(QTreeView):
         self.setMouseTracking(True)
         self.set_style_sheet()
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.context_menu)
+        self.context_menu = None
+        self.customContextMenuRequested.connect(self.show_context_menu)
         QApplication.instance().palette_changed.connect(self.set_style_sheet, type=Qt.ConnectionType.QueuedConnection)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.gesture_manager = GestureManager(self)
+
+    def viewportEvent(self, ev):
+        if hasattr(self, 'gesture_manager'):
+            ret = self.gesture_manager.handle_event(ev)
+            if ret is not None:
+                return ret
+        return super().viewportEvent(ev)
 
     def setModel(self, model):
         QTreeView.setModel(self, model)
@@ -113,21 +122,22 @@ class TOCView(QTreeView):
         for x in self.model().items_at_depth(item.depth):
             self.expand(self.model().indexFromItem(x))
 
-    def context_menu(self, pos):
+    def show_context_menu(self, pos):
         index = self.indexAt(pos)
         m = QMenu(self)
         if index.isValid():
-            m.addAction(_('Expand all items under %s') % index.data(), partial(self.expand_tree, index))
+            m.addAction(QIcon.ic('plus.png'), _('Expand all items under %s') % index.data(), partial(self.expand_tree, index))
         m.addSeparator()
-        m.addAction(_('Expand all items'), self.expandAll)
-        m.addAction(_('Collapse all items'), self.collapseAll)
+        m.addAction(QIcon.ic('plus.png'), _('Expand all items'), self.expandAll)
+        m.addAction(QIcon.ic('minus.png'), _('Collapse all items'), self.collapseAll)
         m.addSeparator()
         if index.isValid():
-            m.addAction(_('Expand all items at the level of {}').format(index.data()), partial(self.expand_at_level, index))
-            m.addAction(_('Collapse all items at the level of {}').format(index.data()), partial(self.collapse_at_level, index))
+            m.addAction(QIcon.ic('plus.png'), _('Expand all items at the level of {}').format(index.data()), partial(self.expand_at_level, index))
+            m.addAction(QIcon.ic('minus.png'), _('Collapse all items at the level of {}').format(index.data()), partial(self.collapse_at_level, index))
         m.addSeparator()
-        m.addAction(_('Copy Table of Contents to clipboard'), self.copy_to_clipboard)
-        m.exec_(self.mapToGlobal(pos))
+        m.addAction(QIcon.ic('edit-copy.png'), _('Copy Table of Contents to clipboard'), self.copy_to_clipboard)
+        self.context_menu = m
+        m.exec(self.mapToGlobal(pos))
 
     def copy_to_clipboard(self):
         m = self.model()
@@ -157,7 +167,7 @@ class TOCSearch(QWidget):
         self.search.setToolTip(_('Search for text in the Table of Contents'))
         s.search.connect(self.do_search)
         self.go = b = QToolButton(self)
-        b.setIcon(QIcon(I('search.png')))
+        b.setIcon(QIcon.ic('search.png'))
         b.clicked.connect(s.do_search)
         b.setToolTip(_('Find next match'))
         l.addWidget(s), l.addWidget(b)
@@ -225,7 +235,7 @@ class TOCItem(QStandardItem):
 
     def __repr__(self):
         indent = ' ' * self.depth
-        return '{}▶ TOC Item: {} ({})'.format(indent, self.title, self.node_id)
+        return f'{indent}▶ TOC Item: {self.title} ({self.node_id})'
 
     def __str__(self):
         return repr(self)
@@ -252,7 +262,10 @@ class TOC(QStandardItemModel):
     def find_items(self, query):
         for item in self.all_items:
             text = item.text()
-            if not query or (text and primary_contains(query, text)):
+            if query and isinstance(query, str):
+                if text and isinstance(text, str) and primary_contains(query, text):
+                    yield item
+            else:
                 yield item
 
     def items_at_depth(self, depth):

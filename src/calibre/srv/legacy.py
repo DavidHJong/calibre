@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -18,7 +17,7 @@ from calibre.srv.routes import endpoint
 from calibre.srv.utils import get_library_data, http_date
 from calibre.utils.cleantext import clean_xml_chars
 from calibre.utils.date import dt_as_local, is_date_undefined, timestampfromdt
-from polyglot.builtins import iteritems, string_or_bytes, filter, as_bytes, unicode_type
+from polyglot.builtins import iteritems, string_or_bytes, as_bytes
 from polyglot.urllib import urlencode
 
 # /mobile {{{
@@ -62,10 +61,10 @@ def build_search_box(num, search, sort, order, ctx, field_metadata, library_id):
 
     num_select = E.select(name='num')
     for option in (5, 10, 25, 100):
-        kwargs = {'value':unicode_type(option)}
+        kwargs = {'value':str(option)}
         if option == num:
             kwargs['SELECTED'] = 'SELECTED'
-        num_select.append(E.option(unicode_type(option), **kwargs))
+        num_select.append(E.option(str(option), **kwargs))
     num_select.tail = ' books matching '
     form.append(num_select)
 
@@ -169,7 +168,7 @@ def build_index(rd, books, num, search, sort, order, start, total, url_base, fie
                     href=ctx.url_for('/legacy/get', what=fmt, book_id=book.id, library_id=library_id, filename=book_filename(rd, book.id, book, fmt))
                 ),
                 class_='button')
-            s.tail = u''
+            s.tail = ''
             data.append(s)
 
         div = E.div(class_='data-container')
@@ -187,11 +186,11 @@ def build_index(rd, books, num, search, sort, order, start, total, url_base, fie
             if val:
                 ctext += '%s=[%s] '%(name, val)
 
-        first = E.span('%s %s by %s' % (book.title, series,
+        first = E.span('{} {} by {}'.format(book.title, series,
             authors_to_string(book.authors)), class_='first-line')
         div.append(first)
         ds = '' if is_date_undefined(book.timestamp) else strftime('%d %b, %Y', t=dt_as_local(book.timestamp).timetuple())
-        second = E.span('%s %s %s' % (ds, tags, ctext), class_='second-line')
+        second = E.span(f'{ds} {tags} {ctext}', class_='second-line')
         div.append(second)
 
         books_table.append(E.tr(thumbnail, data))

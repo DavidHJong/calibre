@@ -1,11 +1,10 @@
-
 ''' E-book management software'''
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import sys, os, re, time, random, warnings
-from polyglot.builtins import codepoint_to_chr, unicode_type, range, hasenv, native_string_type
+import sys, os, re, time, warnings
+from polyglot.builtins import codepoint_to_chr, hasenv, native_string_type
 from math import floor
 from functools import partial
 
@@ -13,7 +12,7 @@ if not hasenv('CALIBRE_SHOW_DEPRECATION_WARNINGS'):
     warnings.simplefilter('ignore', DeprecationWarning)
 try:
     os.getcwd()
-except EnvironmentError:
+except OSError:
     os.chdir(os.path.expanduser('~'))
 
 from calibre.constants import (iswindows, ismacos, islinux, isfrozen,
@@ -71,7 +70,7 @@ def get_types_map():
 
 
 def to_unicode(raw, encoding='utf-8', errors='strict'):
-    if isinstance(raw, unicode_type):
+    if isinstance(raw, str):
         return raw
     return raw.decode(encoding, errors)
 
@@ -259,7 +258,7 @@ def get_parsed_proxy(typ='http', debug=True):
                     traceback.print_exc()
             else:
                 if debug:
-                    prints('Using http proxy', unicode_type(ans))
+                    prints('Using http proxy', str(ans))
                 return ans
 
 
@@ -291,18 +290,14 @@ def is_mobile_ua(ua):
 
 
 def random_user_agent(choose=None, allow_ie=True):
-    from calibre.utils.random_ua import common_user_agents, user_agents_popularity_map
+    from calibre.utils.random_ua import common_user_agents, choose_randomly_by_popularity
     ua_list = common_user_agents()
     ua_list = tuple(x for x in ua_list if not is_mobile_ua(x))
     if not allow_ie:
         ua_list = tuple(x for x in ua_list if 'Trident/' not in x)
     if choose is not None:
         return ua_list[choose]
-    pm = user_agents_popularity_map()
-    weights = None
-    if pm:
-        weights = tuple(map(pm.__getitem__, ua_list))
-    return random.choices(ua_list, weights=weights)[0]
+    return choose_randomly_by_popularity(ua_list)
 
 
 def browser(honor_time=True, max_time=2, user_agent=None, verify_ssl_certificates=True, handle_refresh=True, **kw):
@@ -320,6 +315,9 @@ def browser(honor_time=True, max_time=2, user_agent=None, verify_ssl_certificate
     opener.set_handle_robots(False)
     if user_agent is None:
         user_agent = random_user_agent(0, allow_ie=False)
+    elif user_agent == 'common_words/based':
+        from calibre.utils.random_ua import common_english_word_ua
+        user_agent = common_english_word_ua()
     opener.addheaders = [('User-agent', user_agent)]
     proxies = get_proxies()
     to_add = {}
@@ -358,7 +356,7 @@ def fit_image(width, height, pwidth, pheight):
     return scaled, int(width), int(height)
 
 
-class CurrentDir(object):
+class CurrentDir:
 
     def __init__(self, path):
         self.path = path
@@ -372,7 +370,7 @@ class CurrentDir(object):
     def __exit__(self, *args):
         try:
             os.chdir(self.cwd)
-        except EnvironmentError:
+        except OSError:
             # The previous CWD no longer exists
             pass
 
@@ -419,7 +417,7 @@ def strftime(fmt, t=None):
         fmt = fmt.decode('mbcs' if iswindows else 'utf-8', 'replace')
     ans = time.strftime(fmt, t)
     if early_year:
-        ans = ans.replace('_early year hack##', unicode_type(orig_year))
+        ans = ans.replace('_early year hack##', str(orig_year))
     return ans
 
 
@@ -435,7 +433,7 @@ def entity_to_unicode(match, exceptions=[], encoding='cp1252',
     '''
     :param match: A match object such that '&'+match.group(1)';' is the entity.
 
-    :param exceptions: A list of entities to not convert (Each entry is the name of the entity, for e.g. 'apos' or '#1234'
+    :param exceptions: A list of entities to not convert (Each entry is the name of the entity, e.g. 'apos' or '#1234'
 
     :param encoding: The encoding to use to decode numeric entities between 128 and 256.
     If None, the Unicode UCS encoding is used. A common encoding is cp1252.
@@ -531,7 +529,7 @@ def force_unicode(obj, enc=preferred_encoding):
 def as_unicode(obj, enc=preferred_encoding):
     if not isbytestring(obj):
         try:
-            obj = unicode_type(obj)
+            obj = str(obj)
         except Exception:
             try:
                 obj = native_string_type(obj)
@@ -554,7 +552,7 @@ def human_readable(size, sep=' '):
         if size < (1 << ((i + 1) * 10)):
             divisor, suffix = (1 << (i * 10)), candidate
             break
-    size = unicode_type(float(size)/divisor)
+    size = str(float(size)/divisor)
     if size.find(".") > -1:
         size = size[:size.find(".")+2]
     if size.endswith('.0'):

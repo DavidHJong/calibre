@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -11,17 +10,17 @@ from functools import partial
 from threading import Lock
 
 from calibre.constants import config_dir
-from calibre.db.categories import Tag
+from calibre.db.categories import Tag, category_display_order
 from calibre.ebooks.metadata.sources.identify import urls_from_identifiers
 from calibre.utils.date import isoformat, UNDEFINED_DATE, local_tz
 from calibre.utils.config import tweaks
 from calibre.utils.formatter import EvalFormatter
 from calibre.utils.file_type_icons import EXT_MAP
-from calibre.utils.icu import collation_order
+from calibre.utils.icu import collation_order_for_partitioning
 from calibre.utils.localization import calibre_langcode_to_name
 from calibre.library.comments import comments_to_html, markdown
 from calibre.library.field_metadata import category_icon_map
-from polyglot.builtins import iteritems, itervalues, range, filter, unicode_type
+from polyglot.builtins import iteritems, itervalues
 from polyglot.urllib import quote
 
 IGNORED_FIELDS = frozenset('cover ondevice path marked au_map'.split())
@@ -116,7 +115,7 @@ def category_as_json(items, category, display_name, count, tooltip=None, parent=
         ans['is_user_category'] = True
     if is_first_letter:
         ans['is_first_letter'] = True
-    item_id = 'c' + unicode_type(len(items))
+    item_id = 'c' + str(len(items))
     items[item_id] = ans
     return item_id
 
@@ -146,7 +145,7 @@ CategoriesSettings = namedtuple(
     ' template using_hierarchy grouped_search_terms hidden_categories hide_empty_categories')
 
 
-class GroupedSearchTerms(object):
+class GroupedSearchTerms:
 
     __slots__ = ('keys', 'vals', 'hash')
 
@@ -217,16 +216,13 @@ def categories_settings(query, db, gst_container=GroupedSearchTerms):
         hidden_categories, query.get('hide_empty_categories') == 'yes')
 
 
-def create_toplevel_tree(category_data, items, field_metadata, opts):
+def create_toplevel_tree(category_data, items, field_metadata, opts, db):
     # Create the basic tree, containing all top level categories , user
     # categories and grouped search terms
     last_category_node, category_node_map, root = None, {}, {'id':None, 'children':[]}
     node_id_map = {}
     category_nodes, recount_nodes = [], []
-    order = tweaks['tag_browser_category_order']
-    defvalue = order.get('*', 100)
-    categories = [category for category in field_metadata if category in category_data]
-    scats = sorted(categories, key=lambda x: order.get(x, defvalue))
+    scats = category_display_order(db.pref('tag_browser_category_order', []), list(category_data.keys()))
 
     for category in scats:
         is_user_category = category.startswith('@')
@@ -291,7 +287,7 @@ def build_first_letter_list(category_items):
             c = ' '
         else:
             c = icu_upper(tag.sort)
-        ordnum, ordlen = collation_order(c)
+        ordnum, ordlen = collation_order_for_partitioning(c)
         if last_ordnum != ordnum:
             last_c = c[0:ordlen]
             last_ordnum = ordnum
@@ -333,7 +329,7 @@ def collapse_partition(collapse_nodes, items, category_node, idx, tag, opts, top
         if not name.startswith('##TAG_VIEW##'):
             # Formatter succeeded
             node_id = category_as_json(
-                items, items[category_node['id']].category, name, 0,
+                items, items[category_node['id']]['category'], name, 0,
                 parent=category_node['id'], is_editable=False, is_gst=is_gst,
                 is_hierarchical=category_is_hierarchical, is_searchable=False)
             node_parent = {'id':node_id, 'children':[]}
@@ -362,6 +358,9 @@ def process_category_node(
         opts, tag_map, hierarchical_tags, node_to_tag_map, collapse_nodes,
         intermediate_nodes, hierarchical_items):
     category = items[category_node['id']]['category']
+    if category not in category_data:
+        # This can happen for user categories that are hierarchical and missing their parent.
+        return
     category_items = category_data[category]
     cat_len = len(category_items)
     if cat_len <= 0:
@@ -476,8 +475,7 @@ def process_category_node(
 def iternode_descendants(node):
     for child in node['children']:
         yield child
-        for x in iternode_descendants(child):
-            yield x
+        yield from iternode_descendants(child)
 
 
 def fillout_tree(root, items, node_id_map, category_nodes, category_data, field_metadata, opts, book_rating_map):
@@ -524,7 +522,7 @@ def fillout_tree(root, items, node_id_map, category_nodes, category_data, field_
 def render_categories(opts, db, category_data):
     items = {}
     with db.safe_read_lock:
-        root, node_id_map, category_nodes, recount_nodes = create_toplevel_tree(category_data, items, db.field_metadata, opts)
+        root, node_id_map, category_nodes, recount_nodes = create_toplevel_tree(category_data, items, db.field_metadata, opts, db)
         fillout_tree(root, items, node_id_map, category_nodes, category_data, db.field_metadata, opts, db.fields['rating'].book_value_map)
     for node in recount_nodes:
         item = items[node['id']]
@@ -554,7 +552,7 @@ def dump_categories_tree(data):
         if rating:
             rating = ',rating=%.1f' % rating
         try:
-            ans.append(indent*level + item['name'] + ' [count=%s%s]' % (item['count'], rating or ''))
+            ans.append(indent*level + item['name'] + ' [count={}{}]'.format(item['count'], rating or ''))
         except KeyError:
             print(item)
             raise
@@ -611,6 +609,6 @@ def test_tag_browser(library_path=None):
     from calibre.gui2.tweak_book.diff.main import Diff
     d = Diff(show_as_window=True)
     d.string_diff(m_data, srv_data, left_name='GUI', right_name='server')
-    d.exec_()
+    d.exec()
     del app
 # }}}

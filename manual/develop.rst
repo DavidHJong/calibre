@@ -33,7 +33,7 @@ fetching news. For more examples of plugins designed to add features to calibre,
 Code layout
 ^^^^^^^^^^^^^^
 
-All the calibre python code is in the ``calibre`` package. This package contains the following main sub-packages
+All the calibre Python code is in the ``calibre`` package. This package contains the following main sub-packages
 
     * devices - All the device drivers. Just look through some of the built-in drivers to get an idea for how they work.
 
@@ -75,7 +75,7 @@ Getting the code
 ------------------
 
 You can get the calibre source code in two ways, using a version control system or
-directly downloading a `tarball <https://calibre-ebook.com/dist/src>`_.
+directly downloading a :website_base:`tarball <dist/src>`.
 
 calibre uses `Git <https://www.git-scm.com/>`_, a distributed version control
 system. Git is available on all the platforms calibre supports.  After
@@ -89,7 +89,7 @@ calibre is a very large project with a very long source control history, so the
 above can take a while (10 mins to an hour depending on your internet speed).
 
 If you want to get the code faster, the source code for the latest release is
-always available as an `archive <https://calibre-ebook.com/dist/src>`_.
+always available as an :website_base:`archive <dist/src>`.
 
 To update a branch to the latest code, use the command::
 
@@ -157,8 +157,8 @@ Windows development environment
 
 .. note:: You must also get the calibre source code separately as described above.
 
-Install calibre normally, using the Windows installer. Then open a Command Prompt and change to
-the previously checked out calibre code folder. For example::
+Install calibre normally, using the `Windows installer <https://calibre-ebook.com/download_windows>`__.
+Then open a Command Prompt and change to the previously checked out calibre code folder. For example::
 
     cd C:\Users\kovid\work\calibre
 
@@ -191,8 +191,8 @@ macOS development environment
 
 .. note:: You must also get the calibre source code separately as described above.
 
-Install calibre normally using the provided .dmg. Then open a Terminal and change to
-the previously checked out calibre code folder, for example::
+Install calibre normally using the `provided .dmg <https://calibre-ebook.com/download_osx>`__.
+Then open a Terminal and change to the previously checked out calibre code folder, for example::
 
     cd /Users/kovid/work/calibre
 
@@ -202,7 +202,8 @@ The calibre command line tools are found inside the calibre app bundle, in
 you should add this folder to your PATH environment variable, if you want to
 run the command line tools easily.
 
-The next step is to create a bash script that will set the environment variable ``CALIBRE_DEVELOP_FROM`` to the absolute path of the src folder when running calibre in debug mode.
+The next step is to create a bash script that will set the environment variable ``CALIBRE_DEVELOP_FROM``
+to the absolute path of the src folder when running calibre in debug mode.
 
 Create a plain text file::
 
@@ -210,9 +211,9 @@ Create a plain text file::
     export CALIBRE_DEVELOP_FROM="/Users/kovid/work/calibre/src"
     calibre-debug -g
 
-Save this file as ``/usr/bin/calibre-develop``, then set its permissions so that it can be executed::
+Save this file as :file:`/usr/local/bin/calibre-develop`, then set its permissions so that it can be executed::
 
-    chmod +x /usr/bin/calibre-develop
+    chmod +x /usr/local/bin/calibre-develop
 
 Once you have done this, run::
 
@@ -233,7 +234,7 @@ used in Windows and macOS. Alternatively, you can install calibre from source. I
 environment from source are in the INSTALL file in the source tree. Here we will address using the binary as a runtime, which is the
 recommended method.
 
-Install calibre using the binary installer. Then open a terminal and change to the previously checked out calibre code folder, for example::
+Install calibre using the `binary installer <https://calibre-ebook.com/download_linux>`_. Then open a terminal and change to the previously checked out calibre code folder, for example::
 
     cd /home/kovid/work/calibre
 
@@ -242,6 +243,11 @@ calibre is the folder that contains the src and resources sub-folders.
 The next step is to set the environment variable ``CALIBRE_DEVELOP_FROM`` to the absolute path of the src folder.
 So, following the example above, it would be ``/home/kovid/work/calibre/src``. How to set environment variables depends on
 your Linux distribution and what shell you are using.
+
+.. note::
+    It is recommended to use the binary installer provided from upstream.
+    Should you insist on using a package provided by your distribution, use
+    the ``CALIBRE_PYTHON_PATH`` and ``CALIBRE_RESOURCES_PATH`` variables instead.
 
 Once you have set the environment variable, open a new terminal and check that it was correctly set by using
 the command::
@@ -309,7 +315,7 @@ You can insert the following two lines of code to start an interactive Python se
     ipython(locals())
 
 When running from the command line, this will start an interactive Python interpreter with access to all
-locally defined variables (variables in the local scope). The interactive prompt even has TAB completion
+locally defined variables (variables in the local scope). The interactive prompt even has :kbd:`Tab` completion
 for object properties and you can use the various Python facilities for introspection, such as
 :func:`dir`, :func:`type`, :func:`repr`, etc.
 

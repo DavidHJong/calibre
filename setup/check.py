@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -16,7 +15,19 @@ class Message:
         self.filename, self.lineno, self.msg = filename, lineno, msg
 
     def __str__(self):
-        return '%s:%s: %s' % (self.filename, self.lineno, self.msg)
+        return f'{self.filename}:{self.lineno}: {self.msg}'
+
+
+def checkable_python_files(SRC):
+    for dname in ('odf', 'calibre'):
+        for x in os.walk(os.path.join(SRC, dname)):
+            for f in x[-1]:
+                y = os.path.join(x[0], f)
+                if (f.endswith('.py') and f not in (
+                        'dict_data.py', 'unicodepoints.py', 'krcodepoints.py',
+                        'jacodepoints.py', 'vncodepoints.py', 'zhcodepoints.py') and
+                        'prs500/driver.py' not in y) and not f.endswith('_ui.py'):
+                    yield y
 
 
 class Check(Command):
@@ -26,15 +37,7 @@ class Check(Command):
     CACHE = 'check.json'
 
     def get_files(self):
-        for dname in ('odf', 'calibre'):
-            for x in os.walk(self.j(self.SRC, dname)):
-                for f in x[-1]:
-                    y = self.j(x[0], f)
-                    if (f.endswith('.py') and f not in (
-                            'dict_data.py', 'unicodepoints.py', 'krcodepoints.py',
-                            'jacodepoints.py', 'vncodepoints.py', 'zhcodepoints.py') and
-                            'prs500/driver.py' not in y) and not f.endswith('_ui.py'):
-                        yield y
+        yield from checkable_python_files(self.SRC)
 
         for x in os.walk(self.j(self.d(self.SRC), 'recipes')):
             for f in x[-1]:
@@ -89,8 +92,9 @@ class Check(Command):
         self.wn_path = os.path.expanduser('~/work/srv/main/static')
         self.has_changelog_check = os.path.exists(self.wn_path)
         try:
-            cache = json.load(open(self.cache_file, 'rb'))
-        except EnvironmentError as err:
+            with open(self.cache_file, 'rb') as f:
+                cache = json.load(f)
+        except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
         dirty_files = tuple(f for f in self.get_files() if not self.is_cache_valid(f, cache))
@@ -113,6 +117,24 @@ class Check(Command):
     def clean(self):
         try:
             os.remove(self.cache_file)
-        except EnvironmentError as err:
+        except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
+
+
+class UpgradeSourceCode(Command):
+
+    description = 'Upgrade python source code'
+
+    def run(self, opts):
+        files = []
+        for f in os.listdir(os.path.dirname(os.path.abspath(__file__))):
+            q = os.path.join('setup', f)
+            if f.endswith('.py') and f not in ('linux-installer.py',) and not os.path.isdir(q):
+                files.append(q)
+        for path in checkable_python_files(self.SRC):
+            q = path.replace(os.sep, '/')
+            if '/metadata/sources/' in q or '/store/stores/' in q:
+                continue
+            files.append(q)
+        subprocess.call(['pyupgrade', '--py37-plus'] + files)

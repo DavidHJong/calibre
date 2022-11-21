@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -8,7 +7,7 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 import re
 from collections import namedtuple
 from functools import partial
-from qt.core import QFont, QTextBlockUserData, QTextCharFormat
+from qt.core import QFont, QTextBlockUserData, QTextCharFormat, QVariant
 
 from calibre.ebooks.oeb.polish.spell import html_spell_tags, patterns, xml_spell_tags
 from calibre.gui2.tweak_book import dictionaries, tprefs, verify_link
@@ -72,7 +71,7 @@ State = _speedup.State
 
 def spell_property(sfmt, locale):
     s = QTextCharFormat(sfmt)
-    s.setProperty(SPELL_LOCALE_PROPERTY, locale)
+    s.setProperty(SPELL_LOCALE_PROPERTY, QVariant(locale))
     return s
 
 

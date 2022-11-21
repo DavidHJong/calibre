@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 
 __license__   = 'GPL v3'
@@ -14,6 +13,7 @@ from qt.core import (
     QTimer, QUrl, QVBoxLayout
 )
 from threading import Thread
+from contextlib import suppress
 
 from calibre import as_unicode, browser, prints
 from calibre.constants import DEBUG, iswindows
@@ -21,7 +21,6 @@ from calibre.gui2 import error_dialog
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.filenames import make_long_path_useable
 from calibre.utils.imghdr import what
-from polyglot.builtins import unicode_type
 from polyglot.queue import Empty, Queue
 from polyglot.urllib import unquote, urlparse
 
@@ -94,7 +93,7 @@ class DownloadDialog(QDialog):  # {{{
     def start_download(self):
         self.worker.start()
         QTimer.singleShot(50, self.update)
-        self.exec_()
+        self.exec()
         if self.worker.err is not None:
             error_dialog(self.parent(), _('Download failed'),
                 _('Failed to download from %(url)r with error: %(err)s')%dict(
@@ -169,7 +168,8 @@ def path_from_qurl(qurl, allow_remote=False):
     if lf:
         if iswindows:
             from calibre_extensions.winutil import get_long_path_name
-            lf = get_long_path_name(lf)
+            with suppress(OSError):
+                lf = get_long_path_name(lf)
             lf = make_long_path_useable(lf)
         return lf
     if not allow_remote:
@@ -196,7 +196,7 @@ def dnd_has_extension(md, extensions, allow_all_extensions=False, allow_remote=F
     if DEBUG:
         prints('\nDebugging DND event')
         for f in md.formats():
-            f = unicode_type(f)
+            f = str(f)
             raw = data_as_string(f, md)
             prints(f, len(raw), repr(raw[:300]), '\n')
         print()
@@ -219,7 +219,7 @@ def dnd_has_extension(md, extensions, allow_all_extensions=False, allow_remote=F
 def dnd_get_local_image_and_pixmap(md, image_exts=None):
     if md.hasImage():
         for x in md.formats():
-            x = unicode_type(x)
+            x = str(x)
             if x.startswith('image/'):
                 cdata = bytes(md.data(x))
                 pmap = QPixmap()
@@ -345,7 +345,7 @@ def _get_firefox_pair(md, exts, url, fname):
 
 
 def get_firefox_rurl(md, exts):
-    formats = frozenset([unicode_type(x) for x in md.formats()])
+    formats = frozenset(str(x) for x in md.formats())
     url = fname = None
     if 'application/x-moz-file-promise-url' in formats and \
             'application/x-moz-file-promise-dest-filename' in formats:

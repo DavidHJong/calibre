@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 # License: GPLv3 Copyright: 2012, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -12,7 +11,7 @@ from qt.core import (
 from calibre.customize.ui import enable_plugin
 from calibre.gui2 import gprefs
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget
-from polyglot.builtins import iteritems, range
+from polyglot.builtins import iteritems
 
 
 class ConfigWidget(ConfigWidgetBase):
@@ -83,7 +82,7 @@ class ConfigWidget(ConfigWidgetBase):
             item.setData(Qt.ItemDataRole.UserRole, dev)
             item.setFlags(Qt.ItemFlag.ItemIsEnabled|Qt.ItemFlag.ItemIsUserCheckable|Qt.ItemFlag.ItemIsSelectable)
             item.setCheckState(Qt.CheckState.Checked)
-            item.setIcon(QIcon(I('plugins.png')))
+            item.setIcon(QIcon.ic('plugins.png'))
         self.device_plugins.sortItems()
         self.device_plugins.blockSignals(False)
 

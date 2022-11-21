@@ -1,4 +1,3 @@
-
 import sys, os
 
 from calibre.ebooks.rtf2xml import copy
@@ -175,7 +174,7 @@ class Inline:
         Logic:
             If the token is a control word for character info (cw<ci), use another
             method to add to the dictionary.
-            Use the dictionary to get the approriate function.
+            Use the dictionary to get the appropriate function.
             Always print out the line.
         """
         if line[0:5] == 'cw<ci':  # calibre: bug in original function no diff between cw<ci and cw<pf
@@ -294,7 +293,7 @@ class Inline:
             in waiting.
             Iterate through this slice, which contains only dictionaries.
             Get the keys in each dictionary. If 'font-style' is in the keys,
-            write a marker tag. (I will use this marker tag later when conerting
+            write a marker tag. (I will use this marker tag later when converting
             hext text to utf8.)
             Write a tag for the inline values.
         """
@@ -320,7 +319,7 @@ class Inline:
                     self.__write_obj.write('mi<tg<open-att__<inline')
                     for the_key in the_keys:
                         if the_key != 'contains_inline':
-                            self.__write_obj.write('<%s>%s' % (the_key, the_dict[the_key]))
+                            self.__write_obj.write(f'<{the_key}>{the_dict[the_key]}')
                     self.__write_obj.write('\n')
         self.__groups_in_waiting[0] = 0
 
@@ -377,7 +376,7 @@ class Inline:
                 self.__write_obj.write('mi<tg<open-att__<inline')
                 for the_key in the_keys:
                     if the_key != 'contains_inline':
-                        self.__write_obj.write('<%s>%s' % (the_key, the_dict[the_key]))
+                        self.__write_obj.write(f'<{the_key}>{the_dict[the_key]}')
                 self.__write_obj.write('\n')
         self.__groups_in_waiting[0] = 0
 

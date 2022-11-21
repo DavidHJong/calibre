@@ -1,11 +1,7 @@
-# -*- coding: utf-8 -*-
-
-
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
-import os, glob, re
-from calibre import guess_type
+import os, glob
 from calibre.customize import (FileTypePlugin, MetadataReaderPlugin,
     MetadataWriterPlugin, PreferencesPlugin, InterfaceActionBase, StoreBase)
 from calibre.constants import numeric_version
@@ -55,47 +51,19 @@ class TXT2TXTZ(FileTypePlugin):
         'containing Markdown or Textile references to images. The referenced '
         'images as well as the TXT file are added to the archive.')
     version = numeric_version
-    file_types = {'txt', 'text'}
+    file_types = {'txt', 'text', 'md', 'markdown', 'textile'}
     supported_platforms = ['windows', 'osx', 'linux']
     on_import = True
 
-    def _get_image_references(self, txt, base_dir):
-        from calibre.ebooks.oeb.base import OEB_IMAGES
-
-        images = []
-
-        # Textile
-        for m in re.finditer(r'(?mu)(?:[\[{])?\!(?:\. )?(?P<path>[^\s(!]+)\s?(?:\(([^\)]+)\))?\!(?::(\S+))?(?:[\]}]|(?=\s|$))', txt):
-            path = m.group('path')
-            if path and not os.path.isabs(path) and guess_type(path)[0] in OEB_IMAGES and os.path.exists(os.path.join(base_dir, path)):
-                images.append(path)
-
-        # Markdown inline
-        for m in re.finditer(r'(?mu)\!\[([^\]\[]*(\[[^\]\[]*(\[[^\]\[]*(\[[^\]\[]*(\[[^\]\[]*(\[[^\]\[]*(\[[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*)\]\s*\((?P<path>[^\)]*)\)', txt):  # noqa
-            path = m.group('path')
-            if path and not os.path.isabs(path) and guess_type(path)[0] in OEB_IMAGES and os.path.exists(os.path.join(base_dir, path)):
-                images.append(path)
-
-        # Markdown reference
-        refs = {}
-        for m in re.finditer(r'(?mu)^(\ ?\ ?\ ?)\[(?P<id>[^\]]*)\]:\s*(?P<path>[^\s]*)$', txt):
-            if m.group('id') and m.group('path'):
-                refs[m.group('id')] = m.group('path')
-        for m in re.finditer(r'(?mu)\!\[([^\]\[]*(\[[^\]\[]*(\[[^\]\[]*(\[[^\]\[]*(\[[^\]\[]*(\[[^\]\[]*(\[[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*\])*[^\]\[]*)\]\s*\[(?P<id>[^\]]*)\]', txt):  # noqa
-            path = refs.get(m.group('id'), None)
-            if path and not os.path.isabs(path) and guess_type(path)[0] in OEB_IMAGES and os.path.exists(os.path.join(base_dir, path)):
-                images.append(path)
-
-        # Remove duplicates
-        return list(set(images))
-
     def run(self, path_to_ebook):
         from calibre.ebooks.metadata.opf2 import metadata_to_opf
+        from calibre.ebooks.txt.processor import get_images_from_polyglot_text
 
         with open(path_to_ebook, 'rb') as ebf:
             txt = ebf.read().decode('utf-8', 'replace')
         base_dir = os.path.dirname(path_to_ebook)
-        images = self._get_image_references(txt, base_dir)
+        ext = path_to_ebook.rpartition('.')[-1].lower()
+        images = get_images_from_polyglot_text(txt, base_dir, ext)
 
         if images:
             # Create TXTZ and put file plus images inside of it.
@@ -133,13 +101,22 @@ plugins += [HTML2ZIP, PML2PMLZ, TXT2TXTZ, ArchiveExtract, KPFExtract]
 class ComicMetadataReader(MetadataReaderPlugin):
 
     name = 'Read comic metadata'
-    file_types = {'cbr', 'cbz', 'cb7'}
+    file_types = {'cbr', 'cbz', 'cb7', 'cbc'}
     description = _('Extract cover from comic files')
 
     def customization_help(self, gui=False):
         return 'Read series number from volume or issue number. Default is volume, set this to issue to use issue number instead.'
 
     def get_metadata(self, stream, ftype):
+        if ftype == 'cbc':
+            from zipfile import ZipFile
+            zf = ZipFile(stream)
+            fcn = zf.open('comics.txt').read().decode('utf-8').splitlines()[0]
+            oname = getattr(stream, 'name', None)
+            stream = zf.open(fcn)
+            ftype = fcn.split('.')[-1].lower()
+            if oname:
+                stream.name = oname
         if hasattr(stream, 'seek') and hasattr(stream, 'tell'):
             pos = stream.tell()
             id_ = stream.read(3)
@@ -878,6 +855,12 @@ class ActionBrowseAnnotations(InterfaceActionBase):
     description = _('Browse highlights and bookmarks from all books in the library')
 
 
+class ActionFullTextSearch(InterfaceActionBase):
+    name = 'Full Text Search'
+    actual_plugin = 'calibre.gui2.actions.fts:FullTextSearchAction'
+    description = _('Search the full text of all books in the calibre library')
+
+
 class ActionEditToC(InterfaceActionBase):
     name = 'Edit ToC'
     actual_plugin = 'calibre.gui2.actions.toc_edit:ToCEditAction'
@@ -1080,6 +1063,27 @@ class ActionMarkBooks(InterfaceActionBase):
     description = _('Temporarily mark books')
 
 
+class ActionManageCategories(InterfaceActionBase):
+    name = 'Manage categories'
+    author = 'Charles Haley'
+    actual_plugin = 'calibre.gui2.actions.manage_categories:ManageCategoriesAction'
+    description = _('Manage tag browser categories')
+
+
+class ActionSavedSearches(InterfaceActionBase):
+    name = 'Saved searches'
+    author = 'Charles Haley'
+    actual_plugin = 'calibre.gui2.actions.saved_searches:SavedSearchesAction'
+    description = _('Show a menu of saved searches')
+
+
+class ActionBooklistContextMenu(InterfaceActionBase):
+    name = 'Booklist context menu'
+    author = 'Charles Haley'
+    actual_plugin = 'calibre.gui2.actions.booklist_context_menu:BooklistContextMenuAction'
+    description = _('Open the context menu for the column')
+
+
 class ActionVirtualLibrary(InterfaceActionBase):
     name = 'Virtual Library'
     actual_plugin = 'calibre.gui2.actions.virtual_library:VirtualLibraryAction'
@@ -1120,7 +1124,8 @@ plugins += [ActionAdd, ActionFetchAnnotations, ActionGenerateCatalog,
         ActionCopyToLibrary, ActionTweakEpub, ActionUnpackBook, ActionNextMatch, ActionStore,
         ActionPluginUpdater, ActionPickRandom, ActionEditToC, ActionSortBy,
         ActionMarkBooks, ActionEmbed, ActionTemplateTester, ActionTagMapper, ActionAuthorMapper,
-        ActionVirtualLibrary, ActionBrowseAnnotations, ActionTemplateFunctions, ActionAutoscrollBooks]
+        ActionVirtualLibrary, ActionBrowseAnnotations, ActionTemplateFunctions, ActionAutoscrollBooks,
+        ActionFullTextSearch, ActionManageCategories, ActionBooklistContextMenu, ActionSavedSearches]
 
 # }}}
 
@@ -1129,7 +1134,7 @@ plugins += [ActionAdd, ActionFetchAnnotations, ActionGenerateCatalog,
 
 class LookAndFeel(PreferencesPlugin):
     name = 'Look & Feel'
-    icon = I('lookfeel.png')
+    icon = 'lookfeel.png'
     gui_name = _('Look & feel')
     category = 'Interface'
     gui_category = _('Interface')
@@ -1142,7 +1147,7 @@ class LookAndFeel(PreferencesPlugin):
 
 class Behavior(PreferencesPlugin):
     name = 'Behavior'
-    icon = I('config.png')
+    icon = 'config.png'
     gui_name = _('Behavior')
     category = 'Interface'
     gui_category = _('Interface')
@@ -1154,7 +1159,7 @@ class Behavior(PreferencesPlugin):
 
 class Columns(PreferencesPlugin):
     name = 'Custom Columns'
-    icon = I('column.png')
+    icon = 'column.png'
     gui_name = _('Add your own columns')
     category = 'Interface'
     gui_category = _('Interface')
@@ -1166,7 +1171,7 @@ class Columns(PreferencesPlugin):
 
 class Toolbar(PreferencesPlugin):
     name = 'Toolbar'
-    icon = I('wizard.png')
+    icon = 'wizard.png'
     gui_name = _('Toolbars & menus')
     category = 'Interface'
     gui_category = _('Interface')
@@ -1179,7 +1184,7 @@ class Toolbar(PreferencesPlugin):
 
 class Search(PreferencesPlugin):
     name = 'Search'
-    icon = I('search.png')
+    icon = 'search.png'
     gui_name = _('Searching')
     category = 'Interface'
     gui_category = _('Interface')
@@ -1191,7 +1196,7 @@ class Search(PreferencesPlugin):
 
 class InputOptions(PreferencesPlugin):
     name = 'Input Options'
-    icon = I('arrow-down.png')
+    icon = 'arrow-down.png'
     gui_name = _('Input options')
     category = 'Conversion'
     gui_category = _('Conversion')
@@ -1208,7 +1213,7 @@ class InputOptions(PreferencesPlugin):
 
 class CommonOptions(PreferencesPlugin):
     name = 'Common Options'
-    icon = I('convert.png')
+    icon = 'convert.png'
     gui_name = _('Common options')
     category = 'Conversion'
     gui_category = _('Conversion')
@@ -1220,7 +1225,7 @@ class CommonOptions(PreferencesPlugin):
 
 class OutputOptions(PreferencesPlugin):
     name = 'Output Options'
-    icon = I('arrow-up.png')
+    icon = 'arrow-up.png'
     gui_name = _('Output options')
     category = 'Conversion'
     gui_category = _('Conversion')
@@ -1232,7 +1237,7 @@ class OutputOptions(PreferencesPlugin):
 
 class Adding(PreferencesPlugin):
     name = 'Adding'
-    icon = I('add_book.png')
+    icon = 'add_book.png'
     gui_name = _('Adding books')
     category = 'Import/Export'
     gui_category = _('Import/export')
@@ -1245,7 +1250,7 @@ class Adding(PreferencesPlugin):
 
 class Saving(PreferencesPlugin):
     name = 'Saving'
-    icon = I('save.png')
+    icon = 'save.png'
     gui_name = _('Saving books to disk')
     category = 'Import/Export'
     gui_category = _('Import/export')
@@ -1258,7 +1263,7 @@ class Saving(PreferencesPlugin):
 
 class Sending(PreferencesPlugin):
     name = 'Sending'
-    icon = I('sync.png')
+    icon = 'sync.png'
     gui_name = _('Sending books to devices')
     category = 'Import/Export'
     gui_category = _('Import/export')
@@ -1271,7 +1276,7 @@ class Sending(PreferencesPlugin):
 
 class Plugboard(PreferencesPlugin):
     name = 'Plugboard'
-    icon = I('plugboard.png')
+    icon = 'plugboard.png'
     gui_name = _('Metadata plugboards')
     category = 'Import/Export'
     gui_category = _('Import/export')
@@ -1283,7 +1288,7 @@ class Plugboard(PreferencesPlugin):
 
 class TemplateFunctions(PreferencesPlugin):
     name = 'TemplateFunctions'
-    icon = I('template_funcs.png')
+    icon = 'template_funcs.png'
     gui_name = _('Template functions')
     category = 'Advanced'
     gui_category = _('Advanced')
@@ -1295,7 +1300,7 @@ class TemplateFunctions(PreferencesPlugin):
 
 class Email(PreferencesPlugin):
     name = 'Email'
-    icon = I('mail.png')
+    icon = 'mail.png'
     gui_name = _('Sharing books by email')
     category = 'Sharing'
     gui_category = _('Sharing')
@@ -1308,7 +1313,7 @@ class Email(PreferencesPlugin):
 
 class Server(PreferencesPlugin):
     name = 'Server'
-    icon = I('network-server.png')
+    icon = 'network-server.png'
     gui_name = _('Sharing over the net')
     category = 'Sharing'
     gui_category = _('Sharing')
@@ -1322,7 +1327,7 @@ class Server(PreferencesPlugin):
 
 class MetadataSources(PreferencesPlugin):
     name = 'Metadata download'
-    icon = I('download-metadata.png')
+    icon = 'download-metadata.png'
     gui_name = _('Metadata download')
     category = 'Sharing'
     gui_category = _('Sharing')
@@ -1334,7 +1339,7 @@ class MetadataSources(PreferencesPlugin):
 
 class IgnoredDevices(PreferencesPlugin):
     name = 'Ignored Devices'
-    icon = I('reader.png')
+    icon = 'reader.png'
     gui_name = _('Ignored devices')
     category = 'Sharing'
     gui_category = _('Sharing')
@@ -1347,7 +1352,7 @@ class IgnoredDevices(PreferencesPlugin):
 
 class Plugins(PreferencesPlugin):
     name = 'Plugins'
-    icon = I('plugins.png')
+    icon = 'plugins.png'
     gui_name = _('Plugins')
     category = 'Advanced'
     gui_category = _('Advanced')
@@ -1360,7 +1365,7 @@ class Plugins(PreferencesPlugin):
 
 class Tweaks(PreferencesPlugin):
     name = 'Tweaks'
-    icon = I('tweaks.png')
+    icon = 'tweaks.png'
     gui_name = _('Tweaks')
     category = 'Advanced'
     gui_category = _('Advanced')
@@ -1372,7 +1377,7 @@ class Tweaks(PreferencesPlugin):
 
 class Keyboard(PreferencesPlugin):
     name = 'Keyboard'
-    icon = I('keyboard-prefs.png')
+    icon = 'keyboard-prefs.png'
     gui_name = _('Shortcuts')
     category = 'Advanced'
     gui_category = _('Advanced')
@@ -1384,7 +1389,7 @@ class Keyboard(PreferencesPlugin):
 
 class Misc(PreferencesPlugin):
     name = 'Misc'
-    icon = I('exec.png')
+    icon = 'exec.png'
     gui_name = _('Miscellaneous')
     category = 'Advanced'
     gui_category = _('Advanced')
@@ -1673,7 +1678,7 @@ class StoreKoboStore(StoreBase):
 
     headquarters = 'CA'
     formats = ['EPUB']
-    affiliate = True
+    affiliate = False
 
 
 class StoreLegimiStore(StoreBase):
@@ -1766,7 +1771,7 @@ class StoreOzonRUStore(StoreBase):
 
 class StorePragmaticBookshelfStore(StoreBase):
     name = 'Pragmatic Bookshelf'
-    description = 'The Pragmatic Bookshelf\'s collection of programming and tech books avaliable as e-books.'
+    description = 'The Pragmatic Bookshelf\'s collection of programming and tech books available as e-books.'
     actual_plugin = 'calibre.gui2.store.stores.pragmatic_bookshelf_plugin:PragmaticBookshelfStore'
 
     drm_free_only = True
@@ -1840,16 +1845,6 @@ class StoreWeightlessBooksStore(StoreBase):
     formats = ['EPUB', 'HTML', 'LIT', 'MOBI', 'PDF']
 
 
-class StoreWHSmithUKStore(StoreBase):
-    name = 'WH Smith UK'
-    author = 'Charles Haley'
-    description = u"Shop for savings on Books, discounted Magazine subscriptions and great prices on Stationery, Toys & Games"
-    actual_plugin = 'calibre.gui2.store.stores.whsmith_uk_plugin:WHSmithUKStore'
-
-    headquarters = 'UK'
-    formats = ['EPUB', 'PDF']
-
-
 class StoreWolneLekturyStore(StoreBase):
     name = 'Wolne Lektury'
     author = 'Tomasz Długosz'
@@ -1869,15 +1864,6 @@ class StoreWoblinkStore(StoreBase):
     headquarters = 'PL'
     formats = ['EPUB', 'MOBI', 'PDF', 'WOBLINK']
     affiliate = True
-
-
-class XinXiiStore(StoreBase):
-    name = 'XinXii'
-    description = ''
-    actual_plugin = 'calibre.gui2.store.stores.xinxii_plugin:XinXiiStore'
-
-    headquarters = 'DE'
-    formats = ['EPUB', 'PDF']
 
 
 plugins += [
@@ -1922,10 +1908,8 @@ plugins += [
     StoreSwiatEbookowStore,
     StoreVirtualoStore,
     StoreWeightlessBooksStore,
-    StoreWHSmithUKStore,
     StoreWolneLekturyStore,
     StoreWoblinkStore,
-    XinXiiStore
 ]
 
 # }}}

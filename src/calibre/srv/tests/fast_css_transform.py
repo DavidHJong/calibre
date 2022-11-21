@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2021, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -50,6 +49,11 @@ class TestTransform(SimpleTest):
         u('a:url(  "( )" /**/ )', 'a:url("( )")')
         u('a:url(  "(/*)"  )', 'a:url(  "(/*)"  )', url_callback=lambda x: x)
 
+        d('font-size: 197583965730245.28px', 'font-size: 1.2349e+13rem')
+        d('font-size: 19.28px', 'font-size: 1.205rem')
+        d('font-size:+19.28px', 'font-size:1.205rem')
+        d('font-size: .28in', 'font-size: 1.68rem')
+        d('font-size: +.28in', 'font-size: 1.68rem')
         d(r'f\ont-s\69z\65 : 16\px', 'font-size: 1rem')
         d('font -size: 16px', 'font -size: 16px')
         d('font-/* */size: 1/*x*/6/**/p/**/x !important', 'font-size: 1rem !important')

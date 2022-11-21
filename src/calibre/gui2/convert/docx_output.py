@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -19,7 +16,7 @@ class PluginWidget(Widget):
     TITLE = _('DOCX output')
     HELP = _('Options specific to')+' DOCX '+_('output')
     COMMIT_NAME = 'docx_output'
-    ICON = I('mimetypes/docx.png')
+    ICON = 'mimetypes/docx.png'
 
     def __init__(self, parent, get_option, get_help, db=None, book_id=None):
         Widget.__init__(self, parent, OPTIONS['output']['docx'])

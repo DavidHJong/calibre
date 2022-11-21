@@ -13,7 +13,6 @@ from calibre.ebooks.metadata import string_to_authors
 from calibre.gui2.complete2 import EditWithComplete
 from calibre.utils.config import tweaks
 from calibre.gui2 import gprefs
-from polyglot.builtins import unicode_type
 
 
 class AddEmptyBookDialog(QDialog):
@@ -46,7 +45,7 @@ class AddEmptyBookDialog(QDialog):
         self.initialize_authors(db, author)
 
         self.clear_button = QToolButton(self)
-        self.clear_button.setIcon(QIcon(I('trash.png')))
+        self.clear_button.setIcon(QIcon.ic('trash.png'))
         self.clear_button.setToolTip(_('Reset author to Unknown'))
         self.clear_button.clicked.connect(self.reset_author)
         self._layout.addWidget(self.clear_button, 3, 1, 1, 1)
@@ -62,7 +61,7 @@ class AddEmptyBookDialog(QDialog):
         self.initialize_series(db, series)
 
         self.sclear_button = QToolButton(self)
-        self.sclear_button.setIcon(QIcon(I('trash.png')))
+        self.sclear_button.setIcon(QIcon.ic('trash.png'))
         self.sclear_button.setToolTip(_('Reset series'))
         self.sclear_button.clicked.connect(self.reset_series)
         self._layout.addWidget(self.sclear_button, 5, 1, 1, 1)
@@ -75,7 +74,7 @@ class AddEmptyBookDialog(QDialog):
         self._layout.addWidget(self.title_edit, 7, 0, 1, 1)
 
         self.tclear_button = QToolButton(self)
-        self.tclear_button.setIcon(QIcon(I('trash.png')))
+        self.tclear_button.setIcon(QIcon.ic('trash.png'))
         self.tclear_button.setToolTip(_('Reset title'))
         self.tclear_button.clicked.connect(self.title_edit.clear)
         self._layout.addWidget(self.tclear_button, 7, 1, 1, 1)
@@ -112,7 +111,7 @@ class AddEmptyBookDialog(QDialog):
         if dup_title:
             self.dup_button = b = button_box.addButton(_('&Duplicate current book'), QDialogButtonBox.ButtonRole.ActionRole)
             b.clicked.connect(self.do_duplicate_book)
-            b.setIcon(QIcon(I('edit-copy.png')))
+            b.setIcon(QIcon.ic('edit-copy.png'))
             b.setToolTip(_(
                 'Make the new empty book records exact duplicates\n'
                 'of the current book "%s", with all metadata identical'
@@ -164,11 +163,11 @@ class AddEmptyBookDialog(QDialog):
 
     @property
     def selected_authors(self):
-        return string_to_authors(unicode_type(self.authors_combo.text()))
+        return string_to_authors(str(self.authors_combo.text()))
 
     @property
     def selected_series(self):
-        return unicode_type(self.series_combo.text())
+        return str(self.series_combo.text())
 
     @property
     def selected_title(self):
@@ -180,4 +179,4 @@ if __name__ == '__main__':
     db = db()
     app = QApplication([])
     d = AddEmptyBookDialog(None, db, 'Test Author')
-    d.exec_()
+    d.exec()

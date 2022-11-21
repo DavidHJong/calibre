@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -31,7 +30,7 @@ from calibre.gui2.library.caches import CoverCache, ThumbnailCache
 from calibre.gui2.pin_columns import PinContainer
 from calibre.utils import join_with_timeout
 from calibre.utils.config import prefs, tweaks
-from polyglot.builtins import itervalues, range, unicode_type
+from polyglot.builtins import itervalues
 from polyglot.queue import LifoQueue
 
 CM_TO_INCH = 0.393701
@@ -41,7 +40,7 @@ CACHE_FORMAT = 'PPM'
 def auto_height(widget):
     # On some broken systems, availableGeometry() returns tiny values, we need
     # a value of at least 1000 for 200 DPI systems.
-    return max(1000, QApplication.instance().desktop().availableGeometry(widget).height()) / 5.0
+    return max(1000, widget.screen().availableSize().height()) / 5.0
 
 
 class EncodeError(ValueError):
@@ -51,7 +50,10 @@ class EncodeError(ValueError):
 def handle_enter_press(self, ev, special_action=None, has_edit_cell=True):
     if ev.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return):
         mods = ev.modifiers()
-        if mods & Qt.Modifier.CTRL or mods & Qt.Modifier.ALT or mods & Qt.Modifier.SHIFT or mods & Qt.Modifier.META:
+        if (
+            mods & Qt.KeyboardModifier.ControlModifier or mods & Qt.KeyboardModifier.AltModifier or
+            mods & Qt.KeyboardModifier.ShiftModifier or mods & Qt.KeyboardModifier.MetaModifier
+        ):
             return
         if self.state() != QAbstractItemView.State.EditingState and self.hasFocus() and self.currentIndex().isValid():
             from calibre.gui2.ui import get_gui
@@ -71,6 +73,7 @@ def handle_enter_press(self, ev, special_action=None, has_edit_cell=True):
                 if special_action is not None:
                     special_action(self.currentIndex())
                 gui.iactions['View'].view_triggered(self.currentIndex())
+            gui.enter_key_pressed_in_book_list.emit(self)
             return True
 
 
@@ -107,8 +110,9 @@ def event_has_mods(self, event=None):
 
 def mousePressEvent(self, event):
     ep = event.pos()
-    if self.indexAt(ep) in self.selectionModel().selectedIndexes() and \
-            event.button() == Qt.MouseButton.LeftButton and not self.event_has_mods():
+    # for performance, check the selection only once we know we need it
+    if event.button() == Qt.MouseButton.LeftButton and not self.event_has_mods() \
+                and self.indexAt(ep) in self.selectionModel().selectedIndexes():
         self.drag_start_pos = ep
     if hasattr(self, 'handle_mouse_press_event'):
         return self.handle_mouse_press_event(event)
@@ -207,7 +211,7 @@ def mouseMoveEvent(self, event):
     if not index.isValid():
         return
     drag = self.drag_data()
-    drag.exec_(Qt.DropAction.CopyAction)
+    drag.exec(Qt.DropAction.CopyAction)
     self.drag_start_pos = None
 
 
@@ -216,8 +220,7 @@ def dnd_merge_ok(md):
 
 
 def dragEnterEvent(self, event):
-    if int(event.possibleActions() & Qt.DropAction.CopyAction) + \
-        int(event.possibleActions() & Qt.DropAction.MoveAction) == 0:
+    if not event.possibleActions() & (Qt.DropAction.CopyAction | Qt.DropAction.MoveAction):
         return
     paths = self.paths_from_event(event)
     md = event.mimeData()
@@ -230,7 +233,7 @@ def dropEvent(self, event):
     md = event.mimeData()
     if dnd_merge_ok(md):
         ids = set(map(int, filter(None, bytes(md.data('application/calibre+from_library')).decode('utf-8').split(' '))))
-        row = self.indexAt(event.pos()).row()
+        row = self.indexAt(event.position().toPoint()).row()
         if row > -1 and ids:
             book_id = self.model().id(row)
             if book_id and book_id not in ids:
@@ -287,7 +290,7 @@ def sync(func):
     return ans
 
 
-class AlternateViews(object):
+class AlternateViews:
 
     def __init__(self, main_view):
         self.views = {None:main_view}
@@ -396,7 +399,7 @@ class CoverDelegate(QStyledItemDelegate):
         self._animated_size = val
 
     def __init__(self, parent):
-        super(CoverDelegate, self).__init__(parent)
+        super().__init__(parent)
         self._animated_size = 1.0
         self.animation = QPropertyAnimation(self, b'animated_size', self)
         self.animation.setEasingCurve(QEasingCurve.Type.OutInCirc)
@@ -430,14 +433,14 @@ class CoverDelegate(QStyledItemDelegate):
             width = 0.75 * height
         else:
             width *= self.parent().logicalDpiX() * CM_TO_INCH
-        self.cover_size = QSize(width, height)
+        self.cover_size = QSize(int(width), int(height))
         self.title_height = 0
         if show_title:
             f = self.parent().font()
             sz = f.pixelSize()
             if sz < 5:
                 sz = f.pointSize() * self.parent().logicalDpiY() / 72.0
-            self.title_height = max(25, sz + 10)
+            self.title_height = int(max(25, sz + 10))
         self.item_size = self.cover_size + QSize(2 * self.MARGIN, (2 * self.MARGIN) + self.title_height)
         if self.emblem_size > 0:
             extra = self.emblem_size + self.MARGIN
@@ -452,7 +455,7 @@ class CoverDelegate(QStyledItemDelegate):
         if spc < 0.01:
             self.spacing = max(10, min(50, int(0.1 * self.original_width)))
         else:
-            self.spacing = self.parent().logicalDpiX() * CM_TO_INCH * spc
+            self.spacing = int(self.parent().logicalDpiX() * CM_TO_INCH * spc)
 
     def sizeHint(self, option, index):
         return self.item_size
@@ -469,7 +472,7 @@ class CoverDelegate(QStyledItemDelegate):
                 if fm and fm['datatype'] == 'rating':
                     ans = rating_to_stars(val, fm['display'].get('allow_half_stars', False))
                     is_stars = True
-            return ('' if ans is None else unicode_type(ans)), is_stars
+            return ('' if ans is None else str(ans)), is_stars
         except Exception:
             if DEBUG:
                 import traceback
@@ -496,7 +499,7 @@ class CoverDelegate(QStyledItemDelegate):
         if raw_icon is not None:
             ans = raw_icon.pixmap(sz, sz)
         elif name == ':ondevice':
-            ans = QIcon(I('ok.png')).pixmap(sz, sz)
+            ans = QIcon.ic('ok.png').pixmap(sz, sz)
         elif name:
             pmap = QIcon(os.path.join(config_dir, 'cc_icons', name)).pixmap(sz, sz)
             if not pmap.isNull():
@@ -558,7 +561,7 @@ class CoverDelegate(QStyledItemDelegate):
                 title = db.field_for('title', book_id, default_value='')
                 authors = ' & '.join(db.field_for('authors', book_id, default_value=()))
                 painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter|Qt.TextFlag.TextWordWrap, '%s\n\n%s' % (title, authors))
+                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter|Qt.TextFlag.TextWordWrap, f'{title}\n\n{authors}')
                 if cdata is False:
                     self.render_queue.put(book_id)
                 if self.title_height != 0:
@@ -588,7 +591,7 @@ class CoverDelegate(QStyledItemDelegate):
                 try:
                     p = self.on_device_emblem
                 except AttributeError:
-                    p = self.on_device_emblem = QIcon(I('ok.png')).pixmap(48, 48)
+                    p = self.on_device_emblem = QIcon.ic('ok.png').pixmap(48, 48)
                 self.paint_embossed_emblem(p, painter, orect, right_adjust, left=False)
         finally:
             painter.restore()
@@ -666,7 +669,7 @@ class CoverDelegate(QStyledItemDelegate):
             if title and authors:
                 title = '<b>%s</b>' % ('<br>'.join(wrap(p(title), 120)))
                 authors = '<br>'.join(wrap(p(' & '.join(authors)), 120))
-                tt = '%s<br><br>%s' % (title, authors)
+                tt = f'{title}<br><br>{authors}'
                 series = db.field_for('series', book_id)
                 if series:
                     use_roman_numbers=config['use_roman_numerals_for_series_number']
@@ -732,13 +735,11 @@ class GridView(QListView):
         t.timeout.connect(self.update_memory_cover_cache_size)
 
     def viewportEvent(self, ev):
-        try:
+        if hasattr(self, 'gesture_manager'):
             ret = self.gesture_manager.handle_event(ev)
-        except AttributeError:
-            ret = None
-        if ret is not None:
-            return ret
-        return QListView.viewportEvent(self, ev)
+            if ret is not None:
+                return ret
+        return super().viewportEvent(ev)
 
     @property
     def device_pixel_ratio(self):
@@ -811,7 +812,7 @@ class GridView(QListView):
             path = texture_path(tex)
             if path:
                 path = os.path.abspath(path).replace(os.sep, '/')
-                ss += 'background-image: url({});'.format(path)
+                ss += f'background-image: url({path});'
                 ss += 'background-attachment: fixed;'
                 pm = QPixmap(path)
                 if not pm.isNull():
@@ -819,9 +820,9 @@ class GridView(QListView):
                     r, g, b = qRed(val), qGreen(val), qBlue(val)
         dark = max(r, g, b) < 115
         col = '#eee' if dark else '#111'
-        ss += 'color: {};'.format(col)
+        ss += f'color: {col};'
         self.delegate.highlight_color = QColor(col)
-        self.setStyleSheet('QListView {{ {} }}'.format(ss))
+        self.setStyleSheet(f'QListView {{ {ss} }}')
 
     def refresh_settings(self):
         size_changed = (
@@ -928,7 +929,7 @@ class GridView(QListView):
                     if scaled:
                         if self.ignore_render_requests.is_set():
                             return
-                        p = p.scaled(nwidth, nheight, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                        p = p.scaled(int(nwidth), int(nheight), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
                         p.setDevicePixelRatio(dpr)
                     cdata = p
                 # update cache
@@ -975,7 +976,7 @@ class GridView(QListView):
                 newdb.new_api.add_cover_cache(x)
             try:
                 # Use a timeout so that if, for some reason, the render thread
-                # gets stuck, we dont deadlock, future covers wont get
+                # gets stuck, we dont deadlock, future covers won't get
                 # rendered, but this is better than a deadlock
                 join_with_timeout(self.delegate.render_queue)
             except RuntimeError:
@@ -1140,6 +1141,7 @@ class GridView(QListView):
                 pass
 
     def moveCursor(self, action, modifiers):
+        action = QAbstractItemView.CursorAction(action)
         index = QListView.moveCursor(self, action, modifiers)
         if action in (QAbstractItemView.CursorAction.MoveLeft, QAbstractItemView.CursorAction.MoveRight) and index.isValid():
             ci = self.currentIndex()
@@ -1150,12 +1152,13 @@ class GridView(QListView):
         return index
 
     def selectionCommand(self, index, event):
-        if event and event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Home, Qt.Key.Key_End) and event.modifiers() & Qt.Modifier.CTRL:
+        if event and event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Home, Qt.Key.Key_End
+                                    ) and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             return QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows
-        return super(GridView, self).selectionCommand(index, event)
+        return super().selectionCommand(index, event)
 
     def wheelEvent(self, ev):
-        if ev.phase() not in (Qt.ScrollPhase.ScrollUpdate, 0, Qt.ScrollPhase.ScrollMomentum):
+        if ev.phase() not in (Qt.ScrollPhase.ScrollUpdate, Qt.ScrollPhase.NoScrollPhase, Qt.ScrollPhase.ScrollMomentum):
             return
         number_of_pixels = ev.pixelDelta()
         number_of_degrees = ev.angleDelta() / 8.0
@@ -1178,6 +1181,6 @@ class GridView(QListView):
         if size_changed:
             self.delegate.cover_cache.clear()
 
-        return super(GridView, self).paintEvent(ev)
+        return super().paintEvent(ev)
 
 # }}}

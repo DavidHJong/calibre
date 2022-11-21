@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2020, Kovid Goyal <kovid at kovidgoyal.net>
 
 import atexit
@@ -17,7 +16,7 @@ from qt.webengine import (
 from calibre import detect_ncpus as cpu_count, prints
 from calibre.ebooks.oeb.polish.check.base import ERROR, WARN, BaseError
 from calibre.gui2 import must_use_qt
-from calibre.gui2.webengine import secure_webengine
+from calibre.utils.webengine import secure_webengine, setup_profile
 
 
 class CSSParseError(BaseError):
@@ -117,6 +116,7 @@ def create_profile():
     ans = getattr(create_profile, 'ans', None)
     if ans is None:
         ans = create_profile.ans = QWebEngineProfile(QApplication.instance())
+        setup_profile(ans)
         s = QWebEngineScript()
         s.setName('csslint.js')
         s.setSourceCode(csslint_js())
@@ -148,7 +148,7 @@ class Worker(QWebEnginePage):
                 self.pending = None
 
     def javaScriptConsoleMessage(self, level, msg, lineno, source_id):
-        msg = '{}:{}:{}'.format(source_id, lineno, msg)
+        msg = f'{source_id}:{lineno}:{msg}'
         self.console_messages.append(msg)
         try:
             print(msg)
@@ -159,7 +159,7 @@ class Worker(QWebEnginePage):
         self.working = True
         self.console_messages = []
         self.runJavaScript(
-            'window.check_css({})'.format(json.dumps(src)), QWebEngineScript.ScriptWorldId.ApplicationWorld, self.check_done)
+            f'window.check_css({json.dumps(src)})', QWebEngineScript.ScriptWorldId.ApplicationWorld, self.check_done)
 
     def check_css_when_ready(self, src):
         if self.ready:
@@ -173,7 +173,7 @@ class Worker(QWebEnginePage):
         self.work_done.emit(self, result)
 
 
-class Pool(object):
+class Pool:
 
     def __init__(self):
         self.workers = []
@@ -221,7 +221,8 @@ class Pool(object):
             if not sip.isdeleted(x):
                 sip.delete(x)
 
-        tuple(map(safe_delete, self.workers))
+        for i in self.workers:
+            safe_delete(i)
         self.workers = []
 
 

@@ -1,5 +1,3 @@
-
-
 '''
 Transform XHTML/OPS-ish content into Mobipocket HTML 3.2.
 '''
@@ -8,22 +6,25 @@ __license__   = 'GPL v3'
 __copyright__ = '2008, Marshall T. Vandegrift <llasram@gmail.cam>'
 
 import copy
-import re
 import numbers
+import re
+from contextlib import suppress
 from lxml import etree
-from calibre.ebooks.oeb.base import namespace, barename
-from calibre.ebooks.oeb.base import XHTML, XHTML_NS, urlnormalize
+
+from calibre.ebooks.mobi.utils import convert_color_for_font_tag
+from calibre.ebooks.oeb.base import (
+    XHTML, XHTML_NS, barename, namespace, urlnormalize
+)
 from calibre.ebooks.oeb.stylizer import Stylizer
 from calibre.ebooks.oeb.transforms.flatcss import KeyMapper
-from calibre.ebooks.mobi.utils import convert_color_for_font_tag
 from calibre.utils.imghdr import identify
-from polyglot.builtins import unicode_type, string_or_bytes
+from polyglot.builtins import string_or_bytes
 
 MBP_NS = 'http://mobipocket.com/ns/mbp'
 
 
 def MBP(name):
-    return '{%s}%s' % (MBP_NS, name)
+    return f'{{{MBP_NS}}}{name}'
 
 
 MOBI_NSMAP = {None: XHTML_NS, 'mbp': MBP_NS}
@@ -51,6 +52,17 @@ def asfloat(value):
     return float(value)
 
 
+def convert_margin(style, which):
+    # percentage values come out too large when the user uses a non kindle
+    # output profile like the tablet profile
+    ans = asfloat(style[which])
+    raw = style._get(which)
+    if isinstance(raw, str) and '%' in raw:
+        with suppress(TypeError):
+            ans = min(style._unit_convert(raw, base=600), ans)
+    return ans
+
+
 def isspace(text):
     if not text:
         return True
@@ -59,7 +71,7 @@ def isspace(text):
     return text.isspace()
 
 
-class BlockState(object):
+class BlockState:
 
     def __init__(self, body):
         self.body = body
@@ -74,7 +86,7 @@ class BlockState(object):
         self.content = False
 
 
-class FormatState(object):
+class FormatState:
 
     def __init__(self):
         self.rendered = False
@@ -113,7 +125,7 @@ class FormatState(object):
         return not self.__eq__(other)
 
 
-class MobiMLizer(object):
+class MobiMLizer:
 
     def __init__(self, ignore_tables=False):
         self.ignore_tables = ignore_tables
@@ -124,7 +136,7 @@ class MobiMLizer(object):
         self.log = self.oeb.logger
         self.opts = context
         self.profile = profile = context.dest
-        self.fnums = fnums = dict((v, k) for k, v in profile.fnums.items())
+        self.fnums = fnums = {v: k for k, v in profile.fnums.items()}
         self.fmap = KeyMapper(profile.fbase, profile.fbase, fnums.keys())
         self.mobimlize_spine()
 
@@ -153,7 +165,7 @@ class MobiMLizer(object):
         return "%dem" % int(round(ptsize / embase))
 
     def preize_text(self, text, pre_wrap=False):
-        text = unicode_type(text)
+        text = str(text)
         if pre_wrap:
             # Replace n consecutive spaces with n-1 NBSP + space
             text = re.sub(r' {2,}', lambda m:('\xa0'*(len(m.group())-1) + ' '), text)
@@ -201,7 +213,7 @@ class MobiMLizer(object):
                 bstate.nested.append(para)
                 if tag == 'li' and len(istates) > 1:
                     istates[-2].list_num += 1
-                    para.attrib['value'] = unicode_type(istates[-2].list_num)
+                    para.attrib['value'] = str(istates[-2].list_num)
             elif tag in NESTABLE_TAGS and istate.rendered:
                 para = wrapper = bstate.nested[-1]
             elif not self.opts.mobi_ignore_margins and left > 0 and indent >= 0:
@@ -230,7 +242,7 @@ class MobiMLizer(object):
                 while vspace > 0:
                     wrapper.addprevious(etree.Element(XHTML('br')))
                     vspace -= 1
-            if istate.halign != 'auto' and isinstance(istate.halign, (bytes, unicode_type)):
+            if istate.halign != 'auto' and isinstance(istate.halign, (bytes, str)):
                 if isinstance(istate.halign, bytes):
                     istate.halign = istate.halign.decode('utf-8')
                 para.attrib['align'] = istate.halign
@@ -287,7 +299,7 @@ class MobiMLizer(object):
 
             if fsize != 3:
                 inline = etree.SubElement(inline, XHTML('font'),
-                                          size=unicode_type(fsize))
+                                          size=str(fsize))
             if istate.family == 'monospace':
                 inline = etree.SubElement(inline, XHTML('tt'))
             if istate.italic:
@@ -363,7 +375,10 @@ class MobiMLizer(object):
             bstate.para = None
             istate.halign = style['text-align']
             rawti = style._get('text-indent')
-            istate.indent = style['text-indent']
+            try:
+                istate.indent = style['text-indent']
+            except Exception:
+                istate.indent = 0
             if hasattr(rawti, 'strip') and '%' in rawti:
                 # We have a percentage text indent, these can come out looking
                 # too large if the user chooses a wide output profile like
@@ -372,12 +387,12 @@ class MobiMLizer(object):
             if style['margin-left'] == 'auto' \
                and style['margin-right'] == 'auto':
                 istate.halign = 'center'
-            margin = asfloat(style['margin-left'])
+            margin = convert_margin(style, 'margin-left')
             padding = asfloat(style['padding-left'])
             if tag != 'body':
                 left = margin + padding
             istate.left += left
-            vmargin = asfloat(style['margin-top'])
+            vmargin = convert_margin(style, 'margin-top')
             bstate.vmargin = max((bstate.vmargin, vmargin))
             vpadding = asfloat(style['padding-top'])
             if vpadding > 0:
@@ -385,13 +400,13 @@ class MobiMLizer(object):
                 bstate.vmargin = 0
                 bstate.vpadding += vpadding
         elif not istate.href:
-            margin = asfloat(style['margin-left'])
+            margin = convert_margin(style, 'margin-left')
             padding = asfloat(style['padding-left'])
             lspace = margin + padding
             if lspace > 0:
                 spaces = int(round((lspace * 3) / style['font-size']))
                 elem.text = ('\xa0' * spaces) + (elem.text or '')
-            margin = asfloat(style['margin-right'])
+            margin = convert_margin(style, 'margin-right')
             padding = asfloat(style['padding-right'])
             rspace = margin + padding
             if rspace > 0:
@@ -449,7 +464,7 @@ class MobiMLizer(object):
                                 (72/self.profile.dpi)))
                         except:
                             continue
-                        result = unicode_type(pixs)
+                        result = str(pixs)
                     istate.attrib[prop] = result
             if 'width' not in istate.attrib or 'height' not in istate.attrib:
                 href = self.current_spine_item.abshref(elem.attrib['src'])
@@ -466,8 +481,8 @@ class MobiMLizer(object):
                     else:
                         if 'width' not in istate.attrib and 'height' not in \
                                     istate.attrib:
-                            istate.attrib['width'] = unicode_type(width)
-                            istate.attrib['height'] = unicode_type(height)
+                            istate.attrib['width'] = str(width)
+                            istate.attrib['height'] = str(height)
                         else:
                             ar = width / height
                             if 'width' not in istate.attrib:
@@ -475,13 +490,13 @@ class MobiMLizer(object):
                                     width = int(istate.attrib['height'])*ar
                                 except:
                                     pass
-                                istate.attrib['width'] = unicode_type(int(width))
+                                istate.attrib['width'] = str(int(width))
                             else:
                                 try:
                                     height = int(istate.attrib['width'])/ar
                                 except:
                                     pass
-                                istate.attrib['height'] = unicode_type(int(height))
+                                istate.attrib['height'] = str(int(height))
                         item.unload_data_from_memory()
         elif tag == 'hr' and asfloat(style['width']) > 0 and style._get('width') not in {'100%', 'auto'}:
             raww = style._get('width')
@@ -610,7 +625,7 @@ class MobiMLizer(object):
                     para.getparent().remove(para)
             bstate.para = None
             bstate.istate = None
-            vmargin = asfloat(style['margin-bottom'])
+            vmargin = convert_margin(style, 'margin-bottom')
             bstate.vmargin = max((bstate.vmargin, vmargin))
             vpadding = asfloat(style['padding-bottom'])
             if vpadding > 0:

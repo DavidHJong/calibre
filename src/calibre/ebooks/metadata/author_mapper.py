@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 
 
@@ -7,7 +6,6 @@ import re
 from collections import deque
 
 from calibre.utils.icu import capitalize, lower, upper
-from polyglot.builtins import filter, unicode_type
 
 
 def cap_author_token(token):
@@ -161,9 +159,9 @@ def find_tests():
             def run(rules, authors, expected):
                 if isinstance(rules, dict):
                     rules = [rules]
-                if isinstance(authors, unicode_type):
+                if isinstance(authors, str):
                     authors = [x.strip() for x in authors.split('&')]
-                if isinstance(expected, unicode_type):
+                if isinstance(expected, str):
                     expected = [x.strip() for x in expected.split('&')]
                 ans = map_authors(authors, compile_rules(rules))
                 self.assertEqual(ans, expected)

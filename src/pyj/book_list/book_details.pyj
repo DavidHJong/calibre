@@ -15,7 +15,9 @@ from book_list.library_data import (
     set_book_metadata
 )
 from book_list.router import back, home, open_book, report_a_load_failure
-from book_list.theme import get_color, get_color_as_rgba, get_font_size
+from book_list.theme import (
+    color_scheme, get_color, get_color_as_rgba, get_font_size
+)
 from book_list.top_bar import add_button, clear_buttons, create_top_bar, set_title
 from book_list.ui import query_as_href, set_panel_handler, show_panel
 from book_list.views import search_query_for
@@ -76,8 +78,8 @@ def field_sorter(field_metadata):
         return lvl + (fm.name or 'zzzzz')
 
 
-def href_for_search(name, val):
-    query = '{}:"={}"'.format(name, str.replace(val, '"', r'\"'))
+def href_for_search(name, val, use_quotes=True):
+    query = ('{}:"={}"' if use_quotes else '{}:{}').format(name, str.replace(val, '"', r'\"'))
     q = search_query_for(query)
     return query_as_href(q)
 
@@ -93,10 +95,15 @@ def on_fmt_click(ev):
             close_modal()
             which(book_id, fmt)
 
+        if fmt.lower() is 'pdf':
+            read_button = download_url(book_id, fmt, 'inline')
+        else:
+            read_button = action.bind(None, read_format)
+
         parent.appendChild(E.div(
             E.div(_('What would you like to do with the {} format?').format(fmt)),
             E.div(class_='button-box',
-                create_button(_('Read'), 'book', action.bind(None, read_format)),
+                create_button(_('Read'), 'book', read_button),
                 '\xa0',
                 create_button(_('Download'), 'cloud-download', download_url(book_id, fmt),
                               _('File size: {}').format(human_readable(sz)),
@@ -148,7 +155,7 @@ if window?:
 
 def adjusting_sandboxed_html(html, extra_css):
     color = get_color_as_rgba('window-foreground')
-    css =  f'html, body {{ overflow: hidden; color: rgba({color[0]}, {color[1]}, {color[2]}, {color[3]}) }}'
+    css =  f'\n\n:root {{ color-scheme: {color_scheme()} }}\n\nhtml, body {{ overflow: hidden; color: rgba({color[0]}, {color[1]}, {color[2]}, {color[3]}) }}'
     if extra_css:
         css += '\n\n' + extra_css
     # allow-same-origin is needed for resizing and allow-popups is needed for
@@ -177,15 +184,18 @@ def render_metadata(mi, table, book_id, iframe_css):  # {{{
         return True
 
     fields = library_data.book_display_fields
+    vertical_categories = {x: True for x in (library_data.book_details_vertical_categories or v'[]')}
     if not fields or not fields.length or get_session_data().get('show_all_metadata'):
         fields = sorted(filter(allowed_fields, mi), key=field_sorter(field_metadata))
     else:
         fields = filter(allowed_fields, fields)
     comments = v'[]'
 
-    def add_row(name, val, is_searchable=False, is_html=False, join=None, search_text=None):
+    def add_row(field, name, val, is_searchable=False, is_html=False, join=None, search_text=None, use_quotes=True):
         if val is undefined or val is None:
             return
+        is_vertical = vertical_categories[field]
+
         def add_val(v):
             if not v.appendChild:
                 v += ''
@@ -194,7 +204,7 @@ def render_metadata(mi, table, book_id, iframe_css):  # {{{
                 table.lastChild.lastChild.appendChild(E.a(
                     v,
                     title=_('Click to see books with {0}: {1}').format(name, text_rep), class_='blue-link',
-                    href=href_for_search(is_searchable, text_rep)
+                    href=href_for_search(is_searchable, text_rep, use_quotes=use_quotes)
                 ))
             else:
                 if v.appendChild:
@@ -212,24 +222,27 @@ def render_metadata(mi, table, book_id, iframe_css):  # {{{
                 for v in val:
                     add_val(v)
                     if v is not val[-1]:
-                        table.lastChild.lastChild.appendChild(document.createTextNode(join))
+                        if is_vertical:
+                            table.lastChild.lastChild.appendChild(E.br())
+                        else:
+                            table.lastChild.lastChild.appendChild(document.createTextNode(join))
         return table.lastChild.lastChild
 
     def process_composite(field, fm, name, val):
         if fm.display and fm.display.contains_html:
-            add_row(name, val, is_html=True)
+            add_row(field, name, val, is_html=True)
             return
         if fm.is_multiple and fm.is_multiple.list_to_ui:
             all_vals = filter(None, map(str.strip, val.split(fm.is_multiple.list_to_ui)))
-            add_row(name, all_vals, is_searchable=field, join=fm.is_multiple.list_to_ui)
+            add_row(field, name, all_vals, is_searchable=field, join=fm.is_multiple.list_to_ui)
         else:
-            add_row(name, val, is_searchable=field)
+            add_row(field, name, val, is_searchable=field)
 
     def process_authors(field, fm, name, val):
-        add_row(name, val, is_searchable=field, join=' & ')
+        add_row(field, name, val, is_searchable=field, join=' & ')
 
     def process_publisher(field, fm, name, val):
-        add_row(name, val, is_searchable=field)
+        add_row(field, name, val, is_searchable=field)
 
     def process_formats(field, fm, name, val):
         if val.length and book_id?:
@@ -250,7 +263,7 @@ def render_metadata(mi, table, book_id, iframe_css):  # {{{
         val = int(val or 0)
         if val > 0:
             add_stars_to(stars, val, fm.display?.allow_half_stars)
-            add_row(name, stars, is_searchable=field, search_text=val/2 + '')
+            add_row(field, name, stars, is_searchable=field, search_text=val/2 + '')
 
     def process_identifiers(field, fm, name, val):
 
@@ -278,9 +291,9 @@ def render_metadata(mi, table, book_id, iframe_css):  # {{{
     def process_size(field, fm, name, val):
         if val:
             try:
-                add_row(name, human_readable(int(val)))
+                add_row(field, name, human_readable(int(val)))
             except:
-                add_row(name, val+'')
+                add_row(field, name, val+'')
 
     def process_languages(field, fm, name, val):
         if val and val.length:
@@ -302,9 +315,9 @@ def render_metadata(mi, table, book_id, iframe_css):  # {{{
     def process_datetime(field, fm, name, val):
         if val:
             fmt = interface_data['gui_' + field + '_display_format'] or (fm['display'] or {}).date_format
-            val = format_date(val, fmt)
-            if val:
-                add_row(name, val)
+            formatted_val = format_date(val, fmt)
+            if formatted_val:
+                add_row(field, name, formatted_val, is_searchable=field, search_text=val)
 
     def process_series(field, fm, name, val):
         if val:
@@ -337,19 +350,19 @@ def render_metadata(mi, table, book_id, iframe_css):  # {{{
             hp = fm.display?.heading_position or 'hide'
             if ias is 'long-text':
                 if hp is 'side':
-                    add_row(name, val).style.whiteSpace = 'pre-wrap'
+                    add_row(field, name, val).style.whiteSpace = 'pre-wrap'
                     return
                 val = E.pre(val, style='white-space:pre-wrap').outerHTML
             elif ias is 'short-text':
                 if hp is 'side':
-                    add_row(name, val)
+                    add_row(field, name, val)
                     return
                 val = E.span(val).outerHTML
             else:
                 if field is 'comments' and '<' not in val:
                     val = '\n'.join(['<p class="description">{}</p>'.format(x.replace(/\n/g, '<br>')) for x in val.split('\n\n')])
             if hp is 'side':
-                add_row(name, val, is_html=True)
+                add_row(field, name, val, is_html=True)
                 return
             comments.push(v'[field, val]')
             return
@@ -380,17 +393,25 @@ def render_metadata(mi, table, book_id, iframe_css):  # {{{
             if datatype is 'text' or datatype is 'enumeration':
                 if val is not undefined and val is not None:
                     join = fm.is_multiple.list_to_ui if fm.is_multiple else None
-                    add_row(name, val, join=join, is_searchable=field)
+                    add_row(field, name, val, join=join, is_searchable=field)
             elif datatype is 'bool':
-                add_row(name, _('Yes') if val else _('No'))
+                if library_data.bools_are_tristate:
+                    v =  _('Yes') if val else ('' if val is undefined or val is None else _('No'))
+                else:
+                    v = _('Yes') if val else _('No')
+                if v:
+                    add_row(field, name, v, is_searchable=field, use_quotes=False)
             elif datatype is 'int' or datatype is 'float':
                 if val is not undefined and val is not None:
                     fmt = (fm.display or {}).number_format
                     if fmt:
-                        val = fmt.format(val)
+                        formatted_val = fmt.format(val)
+                        if formatted_val:
+                            val += ''
+                            add_row(field, name, formatted_val, is_searchable=field, search_text=val)
                     else:
                         val += ''
-                    add_row(name, val)
+                        add_row(field, name, val, is_searchable=field, search_text=val)
 
     for field in fields:
         fm = field_metadata[field]
@@ -464,7 +485,10 @@ def read_format(book_id, fmt):
 
 def read_book(book_id):
     fmt = preferred_format(book_id)
-    read_format(book_id, fmt)
+    if fmt and fmt.lower() is 'pdf':
+        window.open(download_url(book_id, fmt, 'inline'), '_blank')
+    else:
+        read_format(book_id, fmt)
 
 
 def download_format(book_id, fmt):
@@ -505,12 +529,17 @@ def render_book(container_id, book_id):
         button_style += 'display: none;'
 
     def prev_next_button(is_prev):
+        delta = -1 if is_prev else 1
+        nbid = book_after(book_id, delta)
+        s = button_style
+        if not nbid or nbid is book_id:
+            s += '; display: none'
         return E.div(
-            style=button_style,
+            style=s,
             title=_('Previous book [Ctrl+Left]') if is_prev else _('Next book [Ctrl+Right]'),
             class_='next-book-button',
             svgicon('chevron-left' if is_prev else 'chevron-right'),
-            onclick=next_book.bind(None, book_id, (-1 if is_prev else 1))
+            onclick=next_book.bind(None, book_id, delta)
         )
 
     imgdiv = E.div(style='position: relative',
@@ -535,7 +564,7 @@ def render_book(container_id, book_id):
         imgdiv
     ))
     container = c.lastChild.firstChild
-    read_button = create_button(_('Read'), 'book', read_book.bind(None, book_id), _('Read this book'))
+    read_button = create_button(_('Read'), 'book', read_book.bind(None, book_id), _('Read this book [V]'))
     fmt = preferred_format(book_id, True)
     download_button = create_button(_('Download'), 'cloud-download', download_url(book_id, fmt),
         _('Download this book in the {0} format ({1})').format(fmt, human_readable(metadata.format_sizes[fmt] or 0)),
@@ -556,8 +585,8 @@ def add_top_bar_buttons(container_id):
     container = document.getElementById(container_id)
     if container:
         clear_buttons(container)
-        add_button(container, 'convert', action=convert_book, tooltip=_('Convert this book to another format'))
-        add_button(container, 'edit', action=edit_metadata, tooltip=_('Edit the metadata for this book'))
+        add_button(container, 'convert', action=convert_book, tooltip=_('Convert this book to another format [C]'))
+        add_button(container, 'edit', action=edit_metadata, tooltip=_('Edit the metadata for this book [E]'))
         add_button(container, 'trash', action=delete_book, tooltip=_('Delete this book'))
         book_id = parse_url_params().book_id
         if book_id is '0':
@@ -724,6 +753,10 @@ def onkeydown(container_id, close_action, ev):
                 delete_book()
             elif ev.key is 'v' or ev.key is 'V':
                 read_book(render_book.book_id)
+            elif ev.key is 'c' or ev.key is 'C':
+                convert_book()
+            elif ev.key is 'e' or ev.key is 'E':
+                edit_metadata()
 
 
 def init(container_id):

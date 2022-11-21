@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim:fileencoding=utf-8
 
 
 __license__ = 'GPL v3'
@@ -12,13 +11,13 @@ from operator import itemgetter
 
 from calibre.library.field_metadata import fm_as_dict
 from calibre.db.tests.base import BaseTest
-from polyglot.builtins import iteritems, range, unicode_type, zip
+from polyglot.builtins import iteritems
 from polyglot import reprlib
 
 # Utils {{{
 
 
-class ET(object):
+class ET:
 
     def __init__(self, func_name, args, kwargs={}, old=None, legacy=None):
         self.func_name = func_name
@@ -30,7 +29,7 @@ class ET(object):
         legacy = self.legacy or test.init_legacy(test.cloned_library)
         oldres = getattr(old, self.func_name)(*self.args, **self.kwargs)
         newres = getattr(legacy, self.func_name)(*self.args, **self.kwargs)
-        test.assertEqual(oldres, newres, 'Equivalence test for %s with args: %s and kwargs: %s failed' % (
+        test.assertEqual(oldres, newres, 'Equivalence test for {} with args: {} and kwargs: {} failed'.format(
             self.func_name, reprlib.repr(self.args), reprlib.repr(self.kwargs)))
         self.retval = newres
         return newres
@@ -49,7 +48,7 @@ def compare_argspecs(old, new, attr):
 
     ok = len(old.args) == len(new.args) and get_defaults(old) == get_defaults(new)
     if not ok:
-        raise AssertionError('The argspec for %s does not match. %r != %r' % (attr, old, new))
+        raise AssertionError(f'The argspec for {attr} does not match. {old!r} != {new!r}')
 
 
 def run_funcs(self, db, ndb, funcs):
@@ -62,14 +61,14 @@ def run_funcs(self, db, ndb, funcs):
             if meth[0] in {'!', '@', '#', '+', '$', '-', '%'}:
                 if meth[0] != '+':
                     fmt = {'!':dict, '@':lambda x:frozenset(x or ()), '#':lambda x:set((x or '').split(',')),
-                           '$':lambda x:set(tuple(y) for y in x), '-':lambda x:None,
+                           '$':lambda x:{tuple(y) for y in x}, '-':lambda x:None,
                            '%':lambda x: set((x or '').split(','))}[meth[0]]
                 else:
                     fmt = args[-1]
                     args = args[:-1]
                 meth = meth[1:]
             res1, res2 = fmt(getattr(db, meth)(*args)), fmt(getattr(ndb, meth)(*args))
-            self.assertEqual(res1, res2, 'The method: %s() returned different results for argument %s' % (meth, args))
+            self.assertEqual(res1, res2, f'The method: {meth}() returned different results for argument {args}')
 # }}}
 
 
@@ -116,7 +115,7 @@ class LegacyTest(BaseTest):
             for label, loc in iteritems(db.FIELD_MAP):
                 if isinstance(label, numbers.Integral):
                     label = '#'+db.custom_column_num_map[label]['label']
-                label = unicode_type(label)
+                label = str(label)
                 ans[label] = tuple(db.get_property(i, index_is_id=True, loc=loc)
                                    for i in db.all_ids())
                 if label in ('id', 'title', '#tags'):
@@ -265,10 +264,11 @@ class LegacyTest(BaseTest):
                 fmt = lambda val:{x[0]:tuple(x[1:]) for x in val}
             for a in args:
                 self.assertEqual(fmt(getattr(db, meth)(*a)), fmt(getattr(ndb, meth)(*a)),
-                                 'The method: %s() returned different results for argument %s' % (meth, a))
+                                 f'The method: {meth}() returned different results for argument {a}')
 
         def f(x, y):  # get_top_level_move_items is broken in the old db on case-insensitive file systems
             x.discard('metadata_db_prefs_backup.json')
+            y.pop('full-text-search.db', None)
             return x, y
         self.assertEqual(f(*db.get_top_level_move_items()), f(*ndb.get_top_level_move_items()))
         d1, d2 = BytesIO(), BytesIO()
@@ -282,7 +282,7 @@ class LegacyTest(BaseTest):
         old = db.get_data_as_dict(prefix='test-prefix')
         new = ndb.get_data_as_dict(prefix='test-prefix')
         for o, n in zip(old, new):
-            o = {unicode_type(k) if isinstance(k, bytes) else k:set(v) if isinstance(v, list) else v for k, v in iteritems(o)}
+            o = {str(k) if isinstance(k, bytes) else k:set(v) if isinstance(v, list) else v for k, v in iteritems(o)}
             n = {k:set(v) if isinstance(v, list) else v for k, v in iteritems(n)}
             self.assertEqual(o, n)
 
@@ -318,7 +318,7 @@ class LegacyTest(BaseTest):
             meth, args = x[0], x[1:]
             self.assertEqual(
                 decode(getattr(db, meth)(*args)), decode(getattr(ndb, meth)(*args)),
-                'The method: %s() returned different results for argument %s' % (meth, args)
+                f'The method: {meth}() returned different results for argument {args}'
             )
         db.close()
     # }}}
@@ -478,8 +478,8 @@ class LegacyTest(BaseTest):
                 obj, nobj  = getattr(db, attr), getattr(ndb, attr)
                 if attr not in SKIP_ARGSPEC:
                     try:
-                        argspec = inspect.getargspec(obj)
-                        nargspec = inspect.getargspec(nobj)
+                        argspec = inspect.getfullargspec(obj)
+                        nargspec = inspect.getfullargspec(nobj)
                     except (TypeError, ValueError):
                         pass
                     else:
@@ -516,7 +516,7 @@ class LegacyTest(BaseTest):
             T = partial(ET, 'get_all_custom_book_data', old=old, legacy=legacy)
             T((name, object()))
             T = partial(ET, 'delete_all_custom_book_data', old=old, legacy=legacy)
-            T((name))
+            T(name)
             T = partial(ET, 'get_all_custom_book_data', old=old, legacy=legacy)
             T((name, object()))
 
